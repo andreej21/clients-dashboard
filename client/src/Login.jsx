@@ -32,7 +32,7 @@ export default function Login({ onLogin }) {
     <div style={{ minHeight: "100vh", background: "#0f0f1a", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "system-ui,sans-serif" }}>
       <div style={{ width: 360, background: "#1e1e2e", border: "1px solid #2a2a3e", borderRadius: 16, padding: 36 }}>
         <h1 style={{ color: "#fff", fontSize: 22, fontWeight: 800, margin: "0 0 4px" }}>
-          <span style={{ color: "#6366f1" }}>Coverd</span> Dashboard
+          <span style={{ color: "#6366f1" }}>SP Media</span> Dashboards
         </h1>
         <p style={{ color: "#555", fontSize: 13, margin: "0 0 28px" }}>Sign in to your account</p>
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
