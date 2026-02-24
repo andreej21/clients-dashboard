@@ -12,7 +12,19 @@ const PORT = process.env.PORT || 3001;
 const META_BASE = "https://graph.facebook.com/v18.0";
 const META_TOKEN = process.env.META_TOKEN;
 
-app.use(cors({ origin: "http://localhost:5173" }));
+const allowedOrigins = [
+  "http://localhost:5173",
+  "http://localhost:3000",
+  process.env.FRONTEND_URL,
+].filter(Boolean);
+
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+    callback(new Error("Not allowed by CORS"));
+  },
+  credentials: true,
+}));
 app.use(express.json());
 
 // ── Auth ────────────────────────────────────────────────
@@ -81,7 +93,6 @@ app.post("/api/admin/dashboards", authMiddleware, adminOnly, async (req, res) =>
   const { name, act_id, type = "app", conversion_event } = req.body;
   if (!name || !act_id) return res.status(400).json({ error: "Name and act_id required" });
   const cleanActId = act_id.startsWith("act_") ? act_id : `act_${act_id}`;
-  // Default conversion event based on type
   const defaultEvent = type === "app" ? "app_install" : type === "lead" ? "lead" : "purchase";
   const { data, error } = await supabase.from("dashboards")
     .insert({ name, act_id: cleanActId, type, conversion_event: conversion_event || defaultEvent })
@@ -218,7 +229,6 @@ async function checkDashboardAccess(req, res, dashId) {
   return true;
 }
 
-// Build fields based on dashboard type
 function getFields(type) {
   const base = "date_start,spend,impressions,reach,cpm,cost_per_unique_outbound_click,unique_outbound_clicks_ctr,actions,cost_per_action_type";
   if (type === "ecom") return base + ",action_values";
