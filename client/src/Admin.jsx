@@ -4,7 +4,6 @@ import API from "./config";
 
 
 
-const API = "http://localhost:3001/api";
 const S = {
   card: { background: "#1e1e2e", border: "1px solid #2a2a3e", borderRadius: 12, overflow: "hidden" },
   inp: { background: "#13131f", border: "1px solid #2a2a3e", borderRadius: 8, padding: "9px 12px", color: "#fff", fontSize: 13, outline: "none" },
