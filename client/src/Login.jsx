@@ -96,7 +96,7 @@ export default function Login({ onLogin }) {
               display: "flex", alignItems: "center", justifyContent: "center",
               boxShadow: "0 0 12px rgba(99,102,241,0.5)",
             }}>
-              <img src={spLogo} alt="SP" style={{ width: "80%", height: "80%", objectFit: "contain" }} />
+              <img src={spLogo} alt="SP" style={{ width: "80%", height: "80%", objectFit: "contain", animation: "spin 3s linear infinite" }} />
             </div>
           </div>
         </div>
