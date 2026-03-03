@@ -50,22 +50,28 @@ async function getGoogleAccessToken() {
 }
 
 // ── Google Ads API query helper ─────────────────────────
+// ── Google Ads API query helper ─────────────────────────
 async function googleAdsQuery(customerId, query) {
   const accessToken = await getGoogleAccessToken();
   const cleanId = customerId.replace(/-/g, "");
+  const headers = {
+    Authorization: `Bearer ${accessToken}`,
+    "developer-token": GOOGLE_DEV_TOKEN,
+    "Content-Type": "application/json",
+  };
+  if (process.env.GOOGLE_MCC_ID) {
+    headers["login-customer-id"] = process.env.GOOGLE_MCC_ID.replace(/-/g, "");
+  }
   const r = await fetch(`${GOOGLE_ADS_BASE}/customers/${cleanId}/googleAds:search`, {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "developer-token": GOOGLE_DEV_TOKEN,
-      "Content-Type": "application/json",
-    },
+    headers,
     body: JSON.stringify({ query }),
   });
   const data = await r.json();
   if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
   return data.results || [];
 }
+
 
 // ── Auth ────────────────────────────────────────────────
 
