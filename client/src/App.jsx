@@ -1,8 +1,9 @@
 import { Routes, Route, Navigate } from "react-router-dom";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import Login from "./Login";
 import Admin from "./Admin";
 import Dashboard from "./Dashboard";
+import ResetPassword from "./ResetPassword";
 
 export default function App() {
   const [auth, setAuth] = useState(() => {
@@ -23,19 +24,24 @@ export default function App() {
     setAuth(null);
   };
 
-  if (!auth) return <Login onLogin={login} />;
-
   return (
     <Routes>
-      <Route path="/" element={<Navigate to="/dashboards" replace />} />
-      <Route path="/dashboards" element={<Dashboard auth={auth} onLogout={logout} />} />
-      <Route path="/dashboards/:id" element={<Dashboard auth={auth} onLogout={logout} />} />
-      <Route path="/admin" element={
-        auth.user.role === "admin"
-          ? <Admin auth={auth} onLogout={logout} />
-          : <Navigate to="/dashboards" replace />
-      } />
-      <Route path="*" element={<Navigate to="/dashboards" replace />} />
+      <Route path="/reset-password" element={<ResetPassword />} />
+      {!auth ? (
+        <Route path="*" element={<Login onLogin={login} />} />
+      ) : (
+        <>
+          <Route path="/" element={<Navigate to="/dashboards" replace />} />
+          <Route path="/dashboards" element={<Dashboard auth={auth} onLogout={logout} />} />
+          <Route path="/dashboards/:id" element={<Dashboard auth={auth} onLogout={logout} />} />
+          <Route path="/admin" element={
+            auth.user.role === "admin"
+              ? <Admin auth={auth} onLogout={logout} />
+              : <Navigate to="/dashboards" replace />
+          } />
+          <Route path="*" element={<Navigate to="/dashboards" replace />} />
+        </>
+      )}
     </Routes>
   );
 }
