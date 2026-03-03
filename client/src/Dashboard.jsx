@@ -3,7 +3,6 @@ import { useNavigate, useParams } from "react-router-dom";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine } from "recharts";
 import API from "./config";
 
-
 const fmtCurrency = v => `$${parseFloat(v || 0).toFixed(2)}`;
 const fmtNumber   = v => parseInt(v || 0).toLocaleString();
 const fmtPercent  = v => `${parseFloat(v || 0).toFixed(2)}%`;
@@ -98,14 +97,9 @@ const S = {
 const authHeaders = token => ({ Authorization: `Bearer ${token}` });
 const typeBadge = { app: { label: "App", color: "#6366f1" }, lead: { label: "Lead Gen", color: "#10b981" }, ecom: { label: "Ecom", color: "#f59e0b" } };
 
-// ── Export helpers ──────────────────────────────────────
-
 function exportCSV(rows, dashName, metrics) {
   const headers = ["Date", ...metrics.map(m => m.label)];
-  const csvRows = rows.map(r => [
-    r.date,
-    ...metrics.map(m => r[m.key] ?? "")
-  ]);
+  const csvRows = rows.map(r => [r.date, ...metrics.map(m => r[m.key] ?? "")]);
   const csv = [headers, ...csvRows].map(r => r.join(",")).join("\n");
   const blob = new Blob([csv], { type: "text/csv" });
   const url = URL.createObjectURL(blob);
@@ -123,7 +117,6 @@ function exportPDF(dashName, startDate, endDate, totals, metrics, rows, annotati
       <td style="color:#f59e0b">${annotations.find(a => a.date === r.date)?.note || ""}</td>
     </tr>
   `).join("");
-
   w.document.write(`
     <html><head><title>${dashName} — Report</title>
     <style>
@@ -155,8 +148,6 @@ function exportPDF(dashName, startDate, endDate, totals, metrics, rows, annotati
   w.document.close();
 }
 
-// ── Main component ──────────────────────────────────────
-
 export default function Dashboard({ auth, onLogout }) {
   const nav = useNavigate();
   const { id } = useParams();
@@ -176,12 +167,12 @@ export default function Dashboard({ auth, onLogout }) {
   const [compare, setCompare]           = useState(false);
   const [prevTotals, setPrevTotals]     = useState(null);
   const [prevRows, setPrevRows]         = useState(null);
-  // Annotations
   const [annotations, setAnnotations]   = useState([]);
   const [showAnnotPanel, setAnnotPanel] = useState(false);
   const [newAnnotDate, setNewAnnotDate] = useState("");
   const [newAnnotNote, setNewAnnotNote] = useState("");
   const [annotLoading, setAnnotLoading] = useState(false);
+  const [sidebarOpen, setSidebarOpen]   = useState(false);
 
   const defEnd = new Date(); defEnd.setDate(defEnd.getDate() - 1);
   const defStart = new Date(defEnd); defStart.setDate(defStart.getDate() - 6);
@@ -198,7 +189,6 @@ export default function Dashboard({ auth, onLogout }) {
     });
   }, []);
 
-  // Load annotations when dashboard changes
   useEffect(() => {
     if (!activeDash) return;
     fetch(`${API}/dashboards/${activeDash.id}/annotations`, { headers: h })
@@ -223,7 +213,6 @@ export default function Dashboard({ auth, onLogout }) {
       const prevEnd = new Date(startDate); prevEnd.setDate(prevEnd.getDate() - 1);
       const prevStart = new Date(prevEnd); prevStart.setDate(prevStart.getDate() - (dayDiff - 1));
       const prevParams = `since=${toYMD(prevStart)}&until=${toYMD(prevEnd)}`;
-
       const fetches = [
         fetch(`${API}/dashboards/${activeDash.id}/insights/account?${params}`,   { headers: h }),
         fetch(`${API}/dashboards/${activeDash.id}/insights/ads?${params}`,       { headers: h }),
@@ -231,14 +220,9 @@ export default function Dashboard({ auth, onLogout }) {
         fetch(`${API}/dashboards/${activeDash.id}/insights/adsets?${params}`,    { headers: h }),
       ];
       if (compare) fetches.push(fetch(`${API}/dashboards/${activeDash.id}/insights/account?${prevParams}`, { headers: h }));
-
       const jsons = await Promise.all((await Promise.all(fetches)).map(r => r.json()));
       const [d1, d2, d3, d4, d5] = jsons;
       if (d1.error) throw new Error(`Account: ${d1.error}`);
-      if (d2.error) throw new Error(`Ads: ${d2.error}`);
-      if (d3.error) throw new Error(`Campaigns: ${d3.error}`);
-      if (d4.error) throw new Error(`Ad Sets: ${d4.error}`);
-
       const type = d1.type || "app", conv = d1.conversion_event || "app_install";
       setDashType(type); setConvEvent(conv);
       setRows((d1.data || []).map(r => parseRow(r, type, conv)).sort((a, b) => a.date.localeCompare(b.date)));
@@ -248,7 +232,6 @@ export default function Dashboard({ auth, onLogout }) {
       setActive("conversions");
       setSortKey(type === "ecom" ? "roas_desc" : "conversionCost_asc");
       if (compare && d5) {
-        if (d5.error) throw new Error(`Prev: ${d5.error}`);
         const pRows = (d5.data || []).map(r => parseRow(r, type, conv));
         setPrevTotals(computeTotals(pRows)); setPrevRows(pRows);
       }
@@ -259,6 +242,7 @@ export default function Dashboard({ auth, onLogout }) {
   const switchDash = dash => {
     setActiveDash(dash); setRows(null); setAds(null); setCampaigns(null); setAdsets(null);
     setError(""); setTab("account"); setAnnotations([]);
+    setSidebarOpen(false);
     nav(`/dashboards/${dash.id}`);
   };
 
@@ -296,372 +280,408 @@ export default function Dashboard({ auth, onLogout }) {
   }).slice(0, 5) : [];
 
   const activeMeta = metrics.find(m => m.key === activeMetric) || metrics[0];
-
-  // Annotations that fall within current date range
   const visibleAnnotations = annotations.filter(a => a.date >= startDate && a.date <= endDate);
 
-  return (
-    <div style={{ minHeight: "100vh", background: "#0f0f1a", color: "#fff", fontFamily: "system-ui,sans-serif", display: "flex" }}>
-
-      {/* Sidebar */}
-      <div style={{ width: 220, background: "#1e1e2e", borderRight: "1px solid #2a2a3e", display: "flex", flexDirection: "column", flexShrink: 0, minHeight: "100vh" }}>
-        <div style={{ padding: "20px 16px 12px" }}>
+  const Sidebar = () => (
+    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+      <div style={{ padding: "20px 16px 12px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div>
           <p style={{ margin: 0, fontWeight: 800, fontSize: 16 }}><span style={{ color: "#6366f1" }}>Clients</span></p>
           <p style={{ margin: "2px 0 0", color: "#555", fontSize: 11 }}>Dashboards</p>
         </div>
-        <div style={{ flex: 1, padding: "8px 10px", overflowY: "auto" }}>
-          <p style={{ color: "#555", fontSize: 11, fontWeight: 600, padding: "4px 6px", margin: "0 0 4px" }}>CLIENTS</p>
-          {myDashboards.map(d => {
-            const badge = typeBadge[d.type] || typeBadge.app;
-            return (
-              <button key={d.id} onClick={() => switchDash(d)} style={{
-                width: "100%", textAlign: "left", background: activeDash?.id === d.id ? "#6366f122" : "none",
-                border: `1px solid ${activeDash?.id === d.id ? "#6366f155" : "transparent"}`,
-                borderRadius: 8, padding: "9px 12px", color: activeDash?.id === d.id ? "#fff" : "#888",
-                cursor: "pointer", fontSize: 13, fontWeight: activeDash?.id === d.id ? 600 : 400, marginBottom: 2,
-                display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6,
-              }}>
-                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.name}</span>
-                <span style={{ fontSize: 10, color: badge.color, background: badge.color + "22", borderRadius: 4, padding: "1px 5px", flexShrink: 0 }}>{badge.label}</span>
-              </button>
-            );
-          })}
-        </div>
-        <div style={{ padding: "12px 10px", borderTop: "1px solid #2a2a3e" }}>
-          <p style={{ color: "#555", fontSize: 11, margin: "0 0 6px", padding: "0 6px" }}>{auth.user.email}</p>
-          {auth.user.role === "admin" && (
-            <button onClick={() => nav("/admin")} style={{ width: "100%", background: "#2a2a3e", border: "none", borderRadius: 8, padding: "8px 12px", color: "#aaa", cursor: "pointer", fontSize: 12, marginBottom: 6, textAlign: "left" }}>
-              ⚙️ Admin Panel
+        <button onClick={() => setSidebarOpen(false)} style={{ display: "none", background: "none", border: "none", color: "#555", fontSize: 20, cursor: "pointer", padding: 4, lineHeight: 1 }} className="sidebar-close">✕</button>
+      </div>
+      <div style={{ flex: 1, padding: "8px 10px", overflowY: "auto" }}>
+        <p style={{ color: "#555", fontSize: 11, fontWeight: 600, padding: "4px 6px", margin: "0 0 4px" }}>CLIENTS</p>
+        {myDashboards.map(d => {
+          const badge = typeBadge[d.type] || typeBadge.app;
+          return (
+            <button key={d.id} onClick={() => switchDash(d)} style={{
+              width: "100%", textAlign: "left", background: activeDash?.id === d.id ? "#6366f122" : "none",
+              border: `1px solid ${activeDash?.id === d.id ? "#6366f155" : "transparent"}`,
+              borderRadius: 8, padding: "9px 12px", color: activeDash?.id === d.id ? "#fff" : "#888",
+              cursor: "pointer", fontSize: 13, fontWeight: activeDash?.id === d.id ? 600 : 400, marginBottom: 2,
+              display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6,
+            }}>
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.name}</span>
+              <span style={{ fontSize: 10, color: badge.color, background: badge.color + "22", borderRadius: 4, padding: "1px 5px", flexShrink: 0 }}>{badge.label}</span>
             </button>
-          )}
-          <button onClick={onLogout} style={{ width: "100%", background: "#3f0f0f22", border: "1px solid #7f1d1d44", borderRadius: 8, padding: "8px 12px", color: "#f87171", cursor: "pointer", fontSize: 12, textAlign: "left" }}>
-            Sign Out
+          );
+        })}
+      </div>
+      <div style={{ padding: "12px 10px", borderTop: "1px solid #2a2a3e" }}>
+        <p style={{ color: "#555", fontSize: 11, margin: "0 0 6px", padding: "0 6px" }}>{auth.user.email}</p>
+        {auth.user.role === "admin" && (
+          <button onClick={() => nav("/admin")} style={{ width: "100%", background: "#2a2a3e", border: "none", borderRadius: 8, padding: "8px 12px", color: "#aaa", cursor: "pointer", fontSize: 12, marginBottom: 6, textAlign: "left" }}>
+            ⚙️ Admin Panel
           </button>
-        </div>
+        )}
+        <button onClick={onLogout} style={{ width: "100%", background: "#3f0f0f22", border: "1px solid #7f1d1d44", borderRadius: 8, padding: "8px 12px", color: "#f87171", cursor: "pointer", fontSize: 12, textAlign: "left" }}>
+          Sign Out
+        </button>
+      </div>
+    </div>
+  );
+
+  return (
+    <>
+      <style>{`
+        @media (max-width: 768px) {
+          .desktop-sidebar { display: none !important; }
+          .mobile-topbar { display: flex !important; }
+          .mobile-overlay { display: ${sidebarOpen ? "block" : "none"} !important; }
+          .mobile-drawer { transform: ${sidebarOpen ? "translateX(0)" : "translateX(-100%)"} !important; }
+          .main-content { padding: 16px 12px !important; }
+          .sidebar-close { display: block !important; }
+        }
+        @media (min-width: 769px) {
+          .mobile-topbar { display: none !important; }
+          .mobile-drawer { display: none !important; }
+          .mobile-overlay { display: none !important; }
+        }
+      `}</style>
+
+      {/* Mobile overlay */}
+      <div className="mobile-overlay" onClick={() => setSidebarOpen(false)} style={{
+        position: "fixed", inset: 0, background: "#000a", zIndex: 40, display: "none",
+      }} />
+
+      {/* Mobile drawer */}
+      <div className="mobile-drawer" style={{
+        position: "fixed", top: 0, left: 0, bottom: 0, width: 260,
+        background: "#1e1e2e", borderRight: "1px solid #2a2a3e",
+        zIndex: 50, transition: "transform .25s", transform: "translateX(-100%)",
+      }}>
+        <Sidebar />
       </div>
 
-      {/* Main */}
-      <div style={{ flex: 1, padding: "24px 20px", overflowX: "hidden" }}>
+      <div style={{ minHeight: "100vh", background: "#0f0f1a", color: "#fff", fontFamily: "system-ui,sans-serif", display: "flex" }}>
 
-        {/* Header */}
-        {activeDash && (
-          <div style={{ marginBottom: 20, display: "flex", alignItems: "center", gap: 12 }}>
-            <div style={{ flex: 1 }}>
-              <h1 style={{ fontSize: 20, fontWeight: 800, margin: 0 }}>{activeDash.name}</h1>
-              <p style={{ color: "#555", fontSize: 12, margin: "3px 0 0", fontFamily: "monospace" }}>{activeDash.act_id}</p>
-            </div>
-            {activeDash.type && (
-              <span style={{ fontSize: 12, color: typeBadge[activeDash.type]?.color, background: typeBadge[activeDash.type]?.color + "22", borderRadius: 6, padding: "3px 10px", fontWeight: 600 }}>
-                {typeBadge[activeDash.type]?.label}
-              </span>
-            )}
-          </div>
-        )}
-
-        {/* Date Controls */}
-        <div style={{ ...S.card, padding: 16, marginBottom: 20 }}>
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
-            <div>
-              <p style={{ margin: "0 0 5px", fontSize: 11, color: "#888" }}>START DATE</p>
-              <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} style={S.inp} />
-            </div>
-            <div>
-              <p style={{ margin: "0 0 5px", fontSize: 11, color: "#888" }}>END DATE</p>
-              <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} style={S.inp} />
-            </div>
-            <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-              {[{ label: "Yesterday", d: 1 }, { label: "7d", d: 7 }, { label: "14d", d: 14 }, { label: "30d", d: 30 }].map(({ label, d }) => (
-                <button key={d} onClick={() => applyPreset(d)} style={S.btn()}>{label}</button>
-              ))}
-              <button onClick={() => setCompare(c => !c)} style={{
-                ...S.btn(compare ? "#f59e0b22" : "#2a2a3e", compare ? "#f59e0b" : "#aaa"),
-                border: `1px solid ${compare ? "#f59e0b" : "transparent"}`,
-              }}>
-                {compare ? "⚡ Comparing" : "Compare"}
-              </button>
-              <button onClick={fetchData} disabled={loading || !activeDash} style={{ ...S.btn("#6366f1", "#fff"), opacity: loading ? 0.6 : 1, fontSize: 13 }}>
-                {loading ? "Loading…" : "Fetch Data"}
-              </button>
-              {/* Export buttons — only show when data loaded */}
-              {rows && <>
-                <button onClick={() => exportCSV(rows, activeDash?.name, metrics)} style={S.btn("#052e16", "#10b981")}>
-                  ↓ CSV
-                </button>
-                <button onClick={() => exportPDF(activeDash?.name, startDate, endDate, totals, metrics, rows, annotations)} style={S.btn("#1e1b4b", "#818cf8")}>
-                  ↓ PDF
-                </button>
-              </>}
-            </div>
-          </div>
-          {compare && (() => {
-            const dayDiff = Math.round((new Date(endDate) - new Date(startDate)) / 86400000) + 1;
-            const pEnd = new Date(startDate); pEnd.setDate(pEnd.getDate() - 1);
-            const pStart = new Date(pEnd); pStart.setDate(pStart.getDate() - (dayDiff - 1));
-            return <p style={{ margin: "10px 0 0", fontSize: 12, color: "#f59e0b" }}>⚡ {startDate} → {endDate} vs {toYMD(pStart)} → {toYMD(pEnd)}</p>;
-          })()}
-          {error && <p style={{ color: "#f87171", margin: "10px 0 0", fontSize: 12 }}>⚠️ {error}</p>}
+        {/* Desktop sidebar */}
+        <div className="desktop-sidebar" style={{ width: 220, background: "#1e1e2e", borderRight: "1px solid #2a2a3e", display: "flex", flexDirection: "column", flexShrink: 0, minHeight: "100vh" }}>
+          <Sidebar />
         </div>
 
-        {!rows && !loading && !error && (
-          <div style={{ textAlign: "center", color: "#444", marginTop: 80 }}>
-            <div style={{ fontSize: 52 }}>📊</div>
-            <p style={{ marginTop: 12, fontSize: 14 }}>Pick a date range and hit <strong style={{ color: "#fff" }}>Fetch Data</strong></p>
-          </div>
-        )}
+        {/* Main */}
+        <div style={{ flex: 1, minWidth: 0 }}>
 
-        {/* Tabs */}
-        {rows && (
-          <div style={{ display: "flex", gap: 6, marginBottom: 20, flexWrap: "wrap" }}>
-            {[
-              { key: "account",   label: "📊 Account" },
-              { key: "campaigns", label: `🎯 Campaigns${campaigns ? ` (${campaigns.length})` : ""}` },
-              { key: "adsets",    label: `📁 Ad Sets${adsets ? ` (${adsets.length})` : ""}` },
-              { key: "ads",       label: `🎨 Ads${ads ? ` (${ads.filter(a => a.spend > 0).length})` : ""}` },
-            ].map(t => (
-              <button key={t.key} onClick={() => setTab(t.key)} style={{
-                background: tab === t.key ? "#6366f1" : "#2a2a3e", border: "none", borderRadius: 8,
-                padding: "9px 18px", color: tab === t.key ? "#fff" : "#aaa",
-                cursor: "pointer", fontSize: 13, fontWeight: tab === t.key ? 700 : 400,
-              }}>{t.label}</button>
-            ))}
-            {/* Annotations toggle */}
-            <button onClick={() => setAnnotPanel(p => !p)} style={{
-              ...S.btn(showAnnotPanel ? "#fef3c722" : "#2a2a3e", showAnnotPanel ? "#fbbf24" : "#aaa"),
-              border: `1px solid ${showAnnotPanel ? "#fbbf24" : "transparent"}`, marginLeft: "auto",
-            }}>
-              📝 Notes {annotations.length > 0 ? `(${annotations.length})` : ""}
-            </button>
+          {/* Mobile topbar */}
+          <div className="mobile-topbar" style={{ display: "none", alignItems: "center", gap: 12, padding: "14px 16px", background: "#1e1e2e", borderBottom: "1px solid #2a2a3e", position: "sticky", top: 0, zIndex: 30 }}>
+            <button onClick={() => setSidebarOpen(true)} style={{ background: "none", border: "none", color: "#fff", fontSize: 22, cursor: "pointer", padding: 0, lineHeight: 1 }}>☰</button>
+            <p style={{ margin: 0, fontWeight: 800, fontSize: 15 }}><span style={{ color: "#6366f1" }}>SP Media</span> Dashboards</p>
           </div>
-        )}
 
-        {/* Annotations Panel */}
-        {showAnnotPanel && activeDash && (
-          <div style={{ ...S.card, padding: 20, marginBottom: 20, borderColor: "#fbbf2444" }}>
-            <p style={{ margin: "0 0 14px", fontWeight: 700, fontSize: 14, color: "#fbbf24" }}>📝 Chart Annotations</p>
-            {/* Add annotation */}
-            <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
-              <input type="date" value={newAnnotDate} onChange={e => setNewAnnotDate(e.target.value)}
-                min={startDate} max={endDate} style={{ ...S.inp, width: 160 }} />
-              <input placeholder="Add a note (e.g. New creative launched)" value={newAnnotNote}
-                onChange={e => setNewAnnotNote(e.target.value)}
-                onKeyDown={e => e.key === "Enter" && saveAnnotation()}
-                style={{ ...S.inp, flex: 1, minWidth: 200 }} />
-              <button onClick={saveAnnotation} disabled={annotLoading || !newAnnotDate || !newAnnotNote.trim()}
-                style={{ ...S.btn("#6366f1", "#fff"), opacity: (!newAnnotDate || !newAnnotNote.trim()) ? 0.5 : 1 }}>
-                {annotLoading ? "Saving…" : "Add Note"}
-              </button>
-            </div>
-            {/* Annotations list */}
-            {annotations.length === 0
-              ? <p style={{ color: "#555", fontSize: 13, margin: 0 }}>No notes yet — add one above</p>
-              : annotations.map(a => (
-                <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderTop: "1px solid #1a1a2e" }}>
-                  <span style={{ color: "#fbbf24", fontSize: 12, fontWeight: 600, minWidth: 90 }}>{a.date}</span>
-                  <span style={{ flex: 1, fontSize: 13 }}>{a.note}</span>
-                  <span style={{ color: "#555", fontSize: 11 }}>{a.users?.email}</span>
-                  <button onClick={() => deleteAnnotation(a.id)} style={{ background: "none", border: "none", color: "#f87171", cursor: "pointer", fontSize: 16, padding: "0 4px" }}>×</button>
+          <div className="main-content" style={{ padding: "24px 20px", overflowX: "hidden" }}>
+
+            {/* Header */}
+            {activeDash && (
+              <div style={{ marginBottom: 20, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <h1 style={{ fontSize: 18, fontWeight: 800, margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{activeDash.name}</h1>
+                  <p style={{ color: "#555", fontSize: 12, margin: "3px 0 0", fontFamily: "monospace" }}>{activeDash.act_id}</p>
                 </div>
-              ))
-            }
-          </div>
-        )}
+                {activeDash.type && (
+                  <span style={{ fontSize: 12, color: typeBadge[activeDash.type]?.color, background: typeBadge[activeDash.type]?.color + "22", borderRadius: 6, padding: "3px 10px", fontWeight: 600, flexShrink: 0 }}>
+                    {typeBadge[activeDash.type]?.label}
+                  </span>
+                )}
+              </div>
+            )}
 
-        {/* Campaigns Tab */}
-        {tab === "campaigns" && rows && (
-          campaigns?.length > 0
-            ? <BreakdownTable rows={campaigns} nameLabel="Campaign" dashType={dashType} convEvent={convEvent} />
-            : <div style={{ textAlign: "center", color: "#555", marginTop: 40, fontSize: 14 }}>No campaign data returned</div>
-        )}
+            {/* Date Controls */}
+            <div style={{ ...S.card, padding: 16, marginBottom: 20 }}>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
+                <div style={{ minWidth: 130, flex: "1 1 130px" }}>
+                  <p style={{ margin: "0 0 5px", fontSize: 11, color: "#888" }}>START DATE</p>
+                  <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} style={{ ...S.inp, width: "100%" }} />
+                </div>
+                <div style={{ minWidth: 130, flex: "1 1 130px" }}>
+                  <p style={{ margin: "0 0 5px", fontSize: 11, color: "#888" }}>END DATE</p>
+                  <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} style={{ ...S.inp, width: "100%" }} />
+                </div>
+                <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                  {[{ label: "Yesterday", d: 1 }, { label: "7d", d: 7 }, { label: "14d", d: 14 }, { label: "30d", d: 30 }].map(({ label, d }) => (
+                    <button key={d} onClick={() => applyPreset(d)} style={S.btn()}>{label}</button>
+                  ))}
+                  <button onClick={() => setCompare(c => !c)} style={{
+                    ...S.btn(compare ? "#f59e0b22" : "#2a2a3e", compare ? "#f59e0b" : "#aaa"),
+                    border: `1px solid ${compare ? "#f59e0b" : "transparent"}`,
+                  }}>
+                    {compare ? "⚡ Comparing" : "Compare"}
+                  </button>
+                  <button onClick={fetchData} disabled={loading || !activeDash} style={{ ...S.btn("#6366f1", "#fff"), opacity: loading ? 0.6 : 1, fontSize: 13 }}>
+                    {loading ? "Loading…" : "Fetch Data"}
+                  </button>
+                  {rows && <>
+                    <button onClick={() => exportCSV(rows, activeDash?.name, metrics)} style={S.btn("#052e16", "#10b981")}>↓ CSV</button>
+                    <button onClick={() => exportPDF(activeDash?.name, startDate, endDate, totals, metrics, rows, annotations)} style={S.btn("#1e1b4b", "#818cf8")}>↓ PDF</button>
+                  </>}
+                </div>
+              </div>
+              {compare && (() => {
+                const dayDiff = Math.round((new Date(endDate) - new Date(startDate)) / 86400000) + 1;
+                const pEnd = new Date(startDate); pEnd.setDate(pEnd.getDate() - 1);
+                const pStart = new Date(pEnd); pStart.setDate(pStart.getDate() - (dayDiff - 1));
+                return <p style={{ margin: "10px 0 0", fontSize: 12, color: "#f59e0b" }}>⚡ {startDate} → {endDate} vs {toYMD(pStart)} → {toYMD(pEnd)}</p>;
+              })()}
+              {error && <p style={{ color: "#f87171", margin: "10px 0 0", fontSize: 12 }}>⚠️ {error}</p>}
+            </div>
 
-        {/* Ad Sets Tab */}
-        {tab === "adsets" && rows && (
-          adsets?.length > 0
-            ? <BreakdownTable rows={adsets} nameLabel="Ad Set" subLabel="Campaign" subKey="campaignName" dashType={dashType} convEvent={convEvent} />
-            : <div style={{ textAlign: "center", color: "#555", marginTop: 40, fontSize: 14 }}>No ad set data returned</div>
-        )}
+            {!rows && !loading && !error && (
+              <div style={{ textAlign: "center", color: "#444", marginTop: 80 }}>
+                <div style={{ fontSize: 52 }}>📊</div>
+                <p style={{ marginTop: 12, fontSize: 14 }}>Pick a date range and hit <strong style={{ color: "#fff" }}>Fetch Data</strong></p>
+              </div>
+            )}
 
-        {/* Ads Tab */}
-        {tab === "ads" && rows && (
-          ads?.filter(a => a.spend > 0).length > 0
-            ? <BreakdownTable rows={ads.filter(a => a.spend > 0)} nameLabel="Ad" subLabel="Ad Set" subKey="adsetName" dashType={dashType} convEvent={convEvent} />
-            : <div style={{ textAlign: "center", color: "#555", marginTop: 40, fontSize: 14 }}>No ad data returned</div>
-        )}
-
-        {/* Account Tab */}
-        {tab === "account" && totals && (<>
-
-          {/* KPI Cards */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(165px,1fr))", gap: 10, marginBottom: 20 }}>
-            {metrics.map(m => {
-              const active = activeMetric === m.key;
-              const curr = totals[m.key] || 0;
-              const prev = prevTotals?.[m.key] || 0;
-              const pct  = compare && prev > 0 ? ((curr - prev) / prev) * 100 : null;
-              const costMetric = ["conversionCost","cpm","cpc"].includes(m.key);
-              const isGood = pct === null ? null : costMetric ? pct < 0 : pct > 0;
-              return (
-                <div key={m.key} onClick={() => setActive(m.key)} style={{
-                  ...S.card, padding: "14px 16px", cursor: "pointer",
-                  border: `1px solid ${active ? m.color : "#2a2a3e"}`,
-                  background: active ? m.color + "18" : "#1e1e2e",
-                  boxShadow: active ? `0 0 0 1px ${m.color}55` : "none", transition: "all .15s",
+            {/* Tabs */}
+            {rows && (
+              <div style={{ display: "flex", gap: 6, marginBottom: 20, flexWrap: "wrap" }}>
+                {[
+                  { key: "account",   label: "📊 Account" },
+                  { key: "campaigns", label: `🎯 Campaigns${campaigns ? ` (${campaigns.length})` : ""}` },
+                  { key: "adsets",    label: `📁 Ad Sets${adsets ? ` (${adsets.length})` : ""}` },
+                  { key: "ads",       label: `🎨 Ads${ads ? ` (${ads.filter(a => a.spend > 0).length})` : ""}` },
+                ].map(t => (
+                  <button key={t.key} onClick={() => setTab(t.key)} style={{
+                    background: tab === t.key ? "#6366f1" : "#2a2a3e", border: "none", borderRadius: 8,
+                    padding: "9px 14px", color: tab === t.key ? "#fff" : "#aaa",
+                    cursor: "pointer", fontSize: 12, fontWeight: tab === t.key ? 700 : 400,
+                  }}>{t.label}</button>
+                ))}
+                <button onClick={() => setAnnotPanel(p => !p)} style={{
+                  ...S.btn(showAnnotPanel ? "#fef3c722" : "#2a2a3e", showAnnotPanel ? "#fbbf24" : "#aaa"),
+                  border: `1px solid ${showAnnotPanel ? "#fbbf24" : "transparent"}`, marginLeft: "auto",
                 }}>
-                  <p style={{ margin: "0 0 4px", fontSize: 11, color: active ? m.color : "#666", fontWeight: 600, letterSpacing: ".04em" }}>{m.label.toUpperCase()}</p>
-                  <p style={{ margin: 0, fontSize: 21, fontWeight: 800 }}>{m.format(curr)}</p>
-                  {pct !== null && (
-                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: isGood ? "#10b981" : "#f87171" }}>
-                        {isGood ? "▲" : "▼"} {Math.abs(pct).toFixed(1)}%
-                      </span>
-                      <span style={{ fontSize: 11, color: "#555" }}>{m.format(prev)}</span>
+                  📝 Notes {annotations.length > 0 ? `(${annotations.length})` : ""}
+                </button>
+              </div>
+            )}
+
+            {/* Annotations Panel */}
+            {showAnnotPanel && activeDash && (
+              <div style={{ ...S.card, padding: 20, marginBottom: 20, borderColor: "#fbbf2444" }}>
+                <p style={{ margin: "0 0 14px", fontWeight: 700, fontSize: 14, color: "#fbbf24" }}>📝 Chart Annotations</p>
+                <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+                  <input type="date" value={newAnnotDate} onChange={e => setNewAnnotDate(e.target.value)}
+                    min={startDate} max={endDate} style={{ ...S.inp, flex: "0 0 160px" }} />
+                  <input placeholder="Add a note…" value={newAnnotNote}
+                    onChange={e => setNewAnnotNote(e.target.value)}
+                    onKeyDown={e => e.key === "Enter" && saveAnnotation()}
+                    style={{ ...S.inp, flex: 1, minWidth: 180 }} />
+                  <button onClick={saveAnnotation} disabled={annotLoading || !newAnnotDate || !newAnnotNote.trim()}
+                    style={{ ...S.btn("#6366f1", "#fff"), opacity: (!newAnnotDate || !newAnnotNote.trim()) ? 0.5 : 1 }}>
+                    {annotLoading ? "Saving…" : "Add Note"}
+                  </button>
+                </div>
+                {annotations.length === 0
+                  ? <p style={{ color: "#555", fontSize: 13, margin: 0 }}>No notes yet</p>
+                  : annotations.map(a => (
+                    <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderTop: "1px solid #1a1a2e" }}>
+                      <span style={{ color: "#fbbf24", fontSize: 12, fontWeight: 600, minWidth: 90 }}>{a.date}</span>
+                      <span style={{ flex: 1, fontSize: 13 }}>{a.note}</span>
+                      <span style={{ color: "#555", fontSize: 11 }}>{a.users?.email}</span>
+                      <button onClick={() => deleteAnnotation(a.id)} style={{ background: "none", border: "none", color: "#f87171", cursor: "pointer", fontSize: 16, padding: "0 4px" }}>×</button>
+                    </div>
+                  ))
+                }
+              </div>
+            )}
+
+            {/* Campaigns Tab */}
+            {tab === "campaigns" && rows && (
+              campaigns?.length > 0
+                ? <BreakdownTable rows={campaigns} nameLabel="Campaign" dashType={dashType} convEvent={convEvent} />
+                : <div style={{ textAlign: "center", color: "#555", marginTop: 40, fontSize: 14 }}>No campaign data returned</div>
+            )}
+
+            {/* Ad Sets Tab */}
+            {tab === "adsets" && rows && (
+              adsets?.length > 0
+                ? <BreakdownTable rows={adsets} nameLabel="Ad Set" subLabel="Campaign" subKey="campaignName" dashType={dashType} convEvent={convEvent} />
+                : <div style={{ textAlign: "center", color: "#555", marginTop: 40, fontSize: 14 }}>No ad set data returned</div>
+            )}
+
+            {/* Ads Tab */}
+            {tab === "ads" && rows && (
+              ads?.filter(a => a.spend > 0).length > 0
+                ? <BreakdownTable rows={ads.filter(a => a.spend > 0)} nameLabel="Ad" subLabel="Ad Set" subKey="adsetName" dashType={dashType} convEvent={convEvent} />
+                : <div style={{ textAlign: "center", color: "#555", marginTop: 40, fontSize: 14 }}>No ad data returned</div>
+            )}
+
+            {/* Account Tab */}
+            {tab === "account" && totals && (<>
+
+              {/* KPI Cards */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px,1fr))", gap: 10, marginBottom: 20 }}>
+                {metrics.map(m => {
+                  const active = activeMetric === m.key;
+                  const curr = totals[m.key] || 0;
+                  const prev = prevTotals?.[m.key] || 0;
+                  const pct  = compare && prev > 0 ? ((curr - prev) / prev) * 100 : null;
+                  const costMetric = ["conversionCost","cpm","cpc"].includes(m.key);
+                  const isGood = pct === null ? null : costMetric ? pct < 0 : pct > 0;
+                  return (
+                    <div key={m.key} onClick={() => setActive(m.key)} style={{
+                      ...S.card, padding: "12px 14px", cursor: "pointer",
+                      border: `1px solid ${active ? m.color : "#2a2a3e"}`,
+                      background: active ? m.color + "18" : "#1e1e2e",
+                      boxShadow: active ? `0 0 0 1px ${m.color}55` : "none", transition: "all .15s",
+                    }}>
+                      <p style={{ margin: "0 0 4px", fontSize: 10, color: active ? m.color : "#666", fontWeight: 600, letterSpacing: ".04em" }}>{m.label.toUpperCase()}</p>
+                      <p style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>{m.format(curr)}</p>
+                      {pct !== null && (
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: isGood ? "#10b981" : "#f87171" }}>
+                            {isGood ? "▲" : "▼"} {Math.abs(pct).toFixed(1)}%
+                          </span>
+                          <span style={{ fontSize: 10, color: "#555" }}>{m.format(prev)}</span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Chart */}
+              <div style={{ ...S.card, padding: 16, marginBottom: 20 }}>
+                <div style={{ display: "flex", alignItems: "center", marginBottom: 14, gap: 12, flexWrap: "wrap" }}>
+                  <p style={{ margin: 0, fontWeight: 700, fontSize: 14 }}>
+                    {activeMeta.label} <span style={{ color: "#555", fontWeight: 400, fontSize: 12 }}>— daily</span>
+                  </p>
+                  {compare && prevRows && (
+                    <div style={{ display: "flex", gap: 12, fontSize: 11 }}>
+                      <span style={{ color: activeMeta.color }}>— Current</span>
+                      <span style={{ color: "#f59e0b" }}>-- Previous</span>
                     </div>
                   )}
                 </div>
-              );
-            })}
-          </div>
-
-          {/* Chart */}
-          <div style={{ ...S.card, padding: 20, marginBottom: 20 }}>
-            <div style={{ display: "flex", alignItems: "center", marginBottom: 14, gap: 16, flexWrap: "wrap" }}>
-              <p style={{ margin: 0, fontWeight: 700, fontSize: 14 }}>
-                {activeMeta.label} <span style={{ color: "#555", fontWeight: 400, fontSize: 12 }}>— daily</span>
-              </p>
-              {compare && prevRows && (
-                <div style={{ display: "flex", gap: 12, fontSize: 11 }}>
-                  <span style={{ color: activeMeta.color }}>— Current</span>
-                  <span style={{ color: "#f59e0b" }}>-- Previous</span>
-                </div>
-              )}
-              {visibleAnnotations.length > 0 && (
-                <span style={{ fontSize: 11, color: "#fbbf24", marginLeft: "auto" }}>📝 {visibleAnnotations.length} note{visibleAnnotations.length > 1 ? "s" : ""} on chart</span>
-              )}
-            </div>
-            <ResponsiveContainer width="100%" height={230}>
-              <LineChart data={rows.map((r, i) => ({ ...r, prev: prevRows?.[i]?.[activeMetric] ?? null }))}>
-                <CartesianGrid stroke="#1e1e2e" />
-                <XAxis dataKey="label" tick={{ fill: "#555", fontSize: 10 }} />
-                <YAxis tick={{ fill: "#555", fontSize: 10 }} width={60} tickFormatter={v => activeMeta.format(v)} />
-                <Tooltip
-                  contentStyle={{ background: "#13131f", border: `1px solid ${activeMeta.color}`, borderRadius: 8, fontSize: 12 }}
-                  formatter={(v, name) => [activeMeta.format(v), name === "prev" ? "Previous Period" : "Current Period"]}
-                  labelFormatter={(label, payload) => {
-                    const date = payload?.[0]?.payload?.date;
-                    const annot = visibleAnnotations.find(a => a.date === date);
-                    return annot ? `${label} · 📝 ${annot.note}` : label;
-                  }}
-                />
-                {/* Annotation reference lines */}
-                {visibleAnnotations.map(a => {
-                  const rowMatch = rows.find(r => r.date === a.date);
-                  return rowMatch ? (
-                    <ReferenceLine key={a.id} x={rowMatch.label} stroke="#fbbf24" strokeDasharray="4 4"
-                      label={{ value: "📝", position: "top", fill: "#fbbf24", fontSize: 12 }} />
-                  ) : null;
-                })}
-                <Line type="monotone" dataKey={activeMetric} stroke={activeMeta.color} strokeWidth={2.5} dot={{ r: 3, fill: activeMeta.color }} />
-                {compare && prevRows && (
-                  <Line type="monotone" dataKey="prev" stroke="#f59e0b" strokeWidth={2} strokeDasharray="5 5" dot={false} />
-                )}
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-
-          {/* Top 5 Ads */}
-          <div style={{ ...S.card, marginBottom: 20, overflow: "hidden" }}>
-            <div style={{ padding: "14px 18px", borderBottom: "1px solid #2a2a3e", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-              <p style={{ margin: 0, fontWeight: 700, fontSize: 14 }}>Top 5 Ads</p>
-              <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
-                {top5Sorts.map(s => (
-                  <button key={s.key} onClick={() => setSortKey(s.key)} style={{ background: sortKey === s.key ? "#6366f1" : "#2a2a3e", border: "none", borderRadius: 6, padding: "5px 10px", color: sortKey === s.key ? "#fff" : "#aaa", cursor: "pointer", fontSize: 11 }}>
-                    {s.label}
-                  </button>
-                ))}
+                <ResponsiveContainer width="100%" height={200}>
+                  <LineChart data={rows.map((r, i) => ({ ...r, prev: prevRows?.[i]?.[activeMetric] ?? null }))}>
+                    <CartesianGrid stroke="#1e1e2e" />
+                    <XAxis dataKey="label" tick={{ fill: "#555", fontSize: 9 }} />
+                    <YAxis tick={{ fill: "#555", fontSize: 9 }} width={55} tickFormatter={v => activeMeta.format(v)} />
+                    <Tooltip
+                      contentStyle={{ background: "#13131f", border: `1px solid ${activeMeta.color}`, borderRadius: 8, fontSize: 12 }}
+                      formatter={(v, name) => [activeMeta.format(v), name === "prev" ? "Previous Period" : "Current Period"]}
+                      labelFormatter={(label, payload) => {
+                        const date = payload?.[0]?.payload?.date;
+                        const annot = visibleAnnotations.find(a => a.date === date);
+                        return annot ? `${label} · 📝 ${annot.note}` : label;
+                      }}
+                    />
+                    {visibleAnnotations.map(a => {
+                      const rowMatch = rows.find(r => r.date === a.date);
+                      return rowMatch ? (
+                        <ReferenceLine key={a.id} x={rowMatch.label} stroke="#fbbf24" strokeDasharray="4 4"
+                          label={{ value: "📝", position: "top", fill: "#fbbf24", fontSize: 12 }} />
+                      ) : null;
+                    })}
+                    <Line type="monotone" dataKey={activeMetric} stroke={activeMeta.color} strokeWidth={2.5} dot={{ r: 3, fill: activeMeta.color }} />
+                    {compare && prevRows && (
+                      <Line type="monotone" dataKey="prev" stroke="#f59e0b" strokeWidth={2} strokeDasharray="5 5" dot={false} />
+                    )}
+                  </LineChart>
+                </ResponsiveContainer>
               </div>
-            </div>
-            <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                <thead><tr style={{ background: "#13131f" }}>
-                  <th style={S.th}>Ad Name</th><th style={S.th}>Spend</th>
-                  {dashType !== "ecom" && <><th style={S.th}>Conversions</th><th style={S.th}>CPA</th></>}
-                  {dashType === "ecom" && <><th style={S.th}>Purchases</th><th style={S.th}>Revenue</th><th style={S.th}>ROAS</th><th style={S.th}>Cost/Purchase</th></>}
-                  <th style={S.th}>CPM</th><th style={S.th}>CPC</th><th style={S.th}>CTR</th><th style={S.th}>Impressions</th>
-                </tr></thead>
-                <tbody>
-                  {sortedAds.length === 0
-                    ? <tr><td colSpan={9} style={{ ...S.td, textAlign: "center", color: "#555", padding: 20 }}>No ad data</td></tr>
-                    : sortedAds.map((ad, i) => (
-                      <tr key={ad.id || i} style={{ borderTop: "1px solid #1a1a2e" }}>
-                        <td style={{ ...S.td, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis" }} title={ad.name}>
-                          <span style={{ color: "#6366f1", fontWeight: 700, marginRight: 6 }}>#{i + 1}</span>{ad.name}
-                        </td>
-                        <td style={{ ...S.td, color: "#6366f1", fontWeight: 600 }}>{fmtCurrency(ad.spend)}</td>
-                        {dashType !== "ecom" && <>
-                          <td style={{ ...S.td, color: "#10b981", fontWeight: 600 }}>{fmtNumber(ad.conversions)}</td>
-                          <td style={{ ...S.td, color: "#f59e0b" }}>{ad.conversionCost > 0 ? fmtCurrency(ad.conversionCost) : "—"}</td>
-                        </>}
-                        {dashType === "ecom" && <>
-                          <td style={{ ...S.td, color: "#10b981", fontWeight: 600 }}>{fmtNumber(ad.conversions)}</td>
-                          <td style={{ ...S.td, color: "#34d399", fontWeight: 600 }}>{fmtCurrency(ad.revenue)}</td>
-                          <td style={{ ...S.td, color: "#fbbf24", fontWeight: 600 }}>{fmtROAS(ad.roas)}</td>
-                          <td style={{ ...S.td, color: "#f59e0b" }}>{ad.conversionCost > 0 ? fmtCurrency(ad.conversionCost) : "—"}</td>
-                        </>}
-                        <td style={S.td}>{fmtCurrency(ad.cpm)}</td>
-                        <td style={S.td}>{fmtCurrency(ad.cpc)}</td>
-                        <td style={S.td}>{fmtPercent(ad.ctr)}</td>
-                        <td style={S.td}>{fmtNumber(ad.impressions)}</td>
-                      </tr>
-                    ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
 
-          {/* Daily Breakdown */}
-          <div style={{ ...S.card, overflow: "hidden" }}>
-            <p style={{ margin: 0, padding: "14px 18px", fontWeight: 700, fontSize: 14, borderBottom: "1px solid #2a2a3e" }}>Daily Breakdown</p>
-            <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                <thead><tr style={{ background: "#13131f" }}>
-                  <th style={S.th}>Date</th><th style={S.th}>Conversions</th><th style={S.th}>CPA</th><th style={S.th}>Spend</th>
-                  {dashType === "ecom" && <><th style={S.th}>Revenue</th><th style={S.th}>ROAS</th></>}
-                  {dashType === "lead" && <th style={S.th}>Link Clicks</th>}
-                  <th style={S.th}>Impressions</th><th style={S.th}>Reach</th>
-                  <th style={S.th}>CPM</th><th style={S.th}>CPC</th><th style={S.th}>CTR</th>
-                  <th style={S.th}>Notes</th>
-                </tr></thead>
-                <tbody>
-                  {rows.map((row, i) => {
-                    const annot = annotations.find(a => a.date === row.date);
-                    return (
-                      <tr key={row.date} style={{ borderTop: "1px solid #1a1a2e", background: i % 2 ? "#ffffff04" : "transparent" }}>
-                        <td style={S.td}>{row.label}</td>
-                        <td style={{ ...S.td, color: "#10b981", fontWeight: 600 }}>{fmtNumber(row.conversions)}</td>
-                        <td style={{ ...S.td, color: "#f59e0b" }}>{row.conversionCost > 0 ? fmtCurrency(row.conversionCost) : "—"}</td>
-                        <td style={{ ...S.td, color: "#6366f1", fontWeight: 600 }}>{fmtCurrency(row.spend)}</td>
-                        {dashType === "ecom" && <>
-                          <td style={{ ...S.td, color: "#34d399", fontWeight: 600 }}>{fmtCurrency(row.revenue)}</td>
-                          <td style={{ ...S.td, color: "#fbbf24", fontWeight: 600 }}>{fmtROAS(row.roas)}</td>
-                        </>}
-                        {dashType === "lead" && <td style={S.td}>{fmtNumber(row.linkClicks)}</td>}
-                        <td style={S.td}>{fmtNumber(row.impressions)}</td>
-                        <td style={S.td}>{fmtNumber(row.reach)}</td>
-                        <td style={S.td}>{fmtCurrency(row.cpm)}</td>
-                        <td style={S.td}>{fmtCurrency(row.cpc)}</td>
-                        <td style={S.td}>{fmtPercent(row.ctr)}</td>
-                        <td style={{ ...S.td, color: "#fbbf24", maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis" }} title={annot?.note}>
-                          {annot ? `📝 ${annot.note}` : ""}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+              {/* Top 5 Ads */}
+              <div style={{ ...S.card, marginBottom: 20, overflow: "hidden" }}>
+                <div style={{ padding: "14px 18px", borderBottom: "1px solid #2a2a3e", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <p style={{ margin: 0, fontWeight: 700, fontSize: 14 }}>Top 5 Ads</p>
+                  <div style={{ marginLeft: "auto", display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    {top5Sorts.map(s => (
+                      <button key={s.key} onClick={() => setSortKey(s.key)} style={{ background: sortKey === s.key ? "#6366f1" : "#2a2a3e", border: "none", borderRadius: 6, padding: "5px 10px", color: sortKey === s.key ? "#fff" : "#aaa", cursor: "pointer", fontSize: 11 }}>
+                        {s.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div style={{ overflowX: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                    <thead><tr style={{ background: "#13131f" }}>
+                      <th style={S.th}>Ad Name</th><th style={S.th}>Spend</th>
+                      {dashType !== "ecom" && <><th style={S.th}>Conversions</th><th style={S.th}>CPA</th></>}
+                      {dashType === "ecom" && <><th style={S.th}>Purchases</th><th style={S.th}>Revenue</th><th style={S.th}>ROAS</th><th style={S.th}>Cost/Purchase</th></>}
+                      <th style={S.th}>CPM</th><th style={S.th}>CPC</th><th style={S.th}>CTR</th><th style={S.th}>Impressions</th>
+                    </tr></thead>
+                    <tbody>
+                      {sortedAds.length === 0
+                        ? <tr><td colSpan={9} style={{ ...S.td, textAlign: "center", color: "#555", padding: 20 }}>No ad data</td></tr>
+                        : sortedAds.map((ad, i) => (
+                          <tr key={ad.id || i} style={{ borderTop: "1px solid #1a1a2e" }}>
+                            <td style={{ ...S.td, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis" }} title={ad.name}>
+                              <span style={{ color: "#6366f1", fontWeight: 700, marginRight: 6 }}>#{i + 1}</span>{ad.name}
+                            </td>
+                            <td style={{ ...S.td, color: "#6366f1", fontWeight: 600 }}>{fmtCurrency(ad.spend)}</td>
+                            {dashType !== "ecom" && <>
+                              <td style={{ ...S.td, color: "#10b981", fontWeight: 600 }}>{fmtNumber(ad.conversions)}</td>
+                              <td style={{ ...S.td, color: "#f59e0b" }}>{ad.conversionCost > 0 ? fmtCurrency(ad.conversionCost) : "—"}</td>
+                            </>}
+                            {dashType === "ecom" && <>
+                              <td style={{ ...S.td, color: "#10b981", fontWeight: 600 }}>{fmtNumber(ad.conversions)}</td>
+                              <td style={{ ...S.td, color: "#34d399", fontWeight: 600 }}>{fmtCurrency(ad.revenue)}</td>
+                              <td style={{ ...S.td, color: "#fbbf24", fontWeight: 600 }}>{fmtROAS(ad.roas)}</td>
+                              <td style={{ ...S.td, color: "#f59e0b" }}>{ad.conversionCost > 0 ? fmtCurrency(ad.conversionCost) : "—"}</td>
+                            </>}
+                            <td style={S.td}>{fmtCurrency(ad.cpm)}</td>
+                            <td style={S.td}>{fmtCurrency(ad.cpc)}</td>
+                            <td style={S.td}>{fmtPercent(ad.ctr)}</td>
+                            <td style={S.td}>{fmtNumber(ad.impressions)}</td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Daily Breakdown */}
+              <div style={{ ...S.card, overflow: "hidden" }}>
+                <p style={{ margin: 0, padding: "14px 18px", fontWeight: 700, fontSize: 14, borderBottom: "1px solid #2a2a3e" }}>Daily Breakdown</p>
+                <div style={{ overflowX: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                    <thead><tr style={{ background: "#13131f" }}>
+                      <th style={S.th}>Date</th><th style={S.th}>Conversions</th><th style={S.th}>CPA</th><th style={S.th}>Spend</th>
+                      {dashType === "ecom" && <><th style={S.th}>Revenue</th><th style={S.th}>ROAS</th></>}
+                      {dashType === "lead" && <th style={S.th}>Link Clicks</th>}
+                      <th style={S.th}>Impressions</th><th style={S.th}>Reach</th>
+                      <th style={S.th}>CPM</th><th style={S.th}>CPC</th><th style={S.th}>CTR</th>
+                      <th style={S.th}>Notes</th>
+                    </tr></thead>
+                    <tbody>
+                      {rows.map((row, i) => {
+                        const annot = annotations.find(a => a.date === row.date);
+                        return (
+                          <tr key={row.date} style={{ borderTop: "1px solid #1a1a2e", background: i % 2 ? "#ffffff04" : "transparent" }}>
+                            <td style={S.td}>{row.label}</td>
+                            <td style={{ ...S.td, color: "#10b981", fontWeight: 600 }}>{fmtNumber(row.conversions)}</td>
+                            <td style={{ ...S.td, color: "#f59e0b" }}>{row.conversionCost > 0 ? fmtCurrency(row.conversionCost) : "—"}</td>
+                            <td style={{ ...S.td, color: "#6366f1", fontWeight: 600 }}>{fmtCurrency(row.spend)}</td>
+                            {dashType === "ecom" && <>
+                              <td style={{ ...S.td, color: "#34d399", fontWeight: 600 }}>{fmtCurrency(row.revenue)}</td>
+                              <td style={{ ...S.td, color: "#fbbf24", fontWeight: 600 }}>{fmtROAS(row.roas)}</td>
+                            </>}
+                            {dashType === "lead" && <td style={S.td}>{fmtNumber(row.linkClicks)}</td>}
+                            <td style={S.td}>{fmtNumber(row.impressions)}</td>
+                            <td style={S.td}>{fmtNumber(row.reach)}</td>
+                            <td style={S.td}>{fmtCurrency(row.cpm)}</td>
+                            <td style={S.td}>{fmtCurrency(row.cpc)}</td>
+                            <td style={S.td}>{fmtPercent(row.ctr)}</td>
+                            <td style={{ ...S.td, color: "#fbbf24", maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis" }} title={annot?.note}>
+                              {annot ? `📝 ${annot.note}` : ""}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </>)}
           </div>
-        </>)}
+        </div>
       </div>
-    </div>
+    </>
   );
 }
 
@@ -684,7 +704,7 @@ function BreakdownTable({ rows, nameLabel, subLabel, subKey, dashType, convEvent
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead><tr style={{ background: "#13131f" }}>
-            <th style={{ ...S.th, minWidth: 200 }}>{nameLabel}</th>
+            <th style={{ ...S.th, minWidth: 180 }}>{nameLabel}</th>
             {subLabel && <th style={S.th}>{subLabel}</th>}
             <SortTh k="spend" label="Spend" />
             <SortTh k="conversions" label={convLabel} />
@@ -702,8 +722,8 @@ function BreakdownTable({ rows, nameLabel, subLabel, subKey, dashType, convEvent
               ? <tr><td colSpan={12} style={{ ...S.td, textAlign: "center", color: "#555", padding: 20 }}>No data</td></tr>
               : sorted.map((row, i) => (
                 <tr key={row.id || i} style={{ borderTop: "1px solid #1a1a2e", background: i % 2 ? "#ffffff04" : "transparent" }}>
-                  <td style={{ ...S.td, fontWeight: 600, maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis" }} title={row.name}>{row.name}</td>
-                  {subLabel && <td style={{ ...S.td, color: "#888", maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis" }} title={row[subKey]}>{row[subKey]}</td>}
+                  <td style={{ ...S.td, fontWeight: 600, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis" }} title={row.name}>{row.name}</td>
+                  {subLabel && <td style={{ ...S.td, color: "#888", maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis" }} title={row[subKey]}>{row[subKey]}</td>}
                   <td style={{ ...S.td, color: "#6366f1", fontWeight: 600 }}>{fmtCurrency(row.spend)}</td>
                   <td style={{ ...S.td, color: "#10b981", fontWeight: 600 }}>{fmtNumber(row.conversions)}</td>
                   <td style={{ ...S.td, color: "#f59e0b" }}>{row.conversionCost > 0 ? fmtCurrency(row.conversionCost) : "—"}</td>

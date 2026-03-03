@@ -47,6 +47,71 @@ app.post("/api/login", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// Add this at the top of server/index.js with the other requires:
+const { Resend } = require("resend");
+const resend = new Resend(process.env.RESEND_API_KEY);
+
+// Add this after the /api/login route:
+app.post("/api/forgot-password", async (req, res) => {
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ error: "Email required" });
+  try {
+    const { data: user } = await supabase
+      .from("users").select("id, email").eq("email", email.toLowerCase().trim()).single();
+
+    // Always return success even if user not found (security best practice)
+    if (!user) return res.json({ success: true });
+
+    // Generate a reset token
+    const token = require("crypto").randomBytes(32).toString("hex");
+    const expires = new Date(Date.now() + 1000 * 60 * 60); // 1 hour
+
+    // Store token in DB
+    await supabase.from("password_resets").upsert({
+      user_id: user.id,
+      token,
+      expires_at: expires.toISOString(),
+    }, { onConflict: "user_id" });
+
+    const resetUrl = `${process.env.FRONTEND_URL}/reset-password?token=${token}`;
+
+    await resend.emails.send({
+      from: "onboarding@resend.dev",
+      to: user.email,
+      subject: "Reset your SP Media password",
+      html: `
+        <div style="font-family:system-ui,sans-serif;max-width:480px;margin:0 auto;padding:32px;background:#0f0f1a;color:#fff;border-radius:12px;">
+          <h2 style="color:#6366f1;margin:0 0 8px">SP Media Dashboards</h2>
+          <p style="color:#aaa;margin:0 0 24px">Password reset request</p>
+          <p style="color:#fff;margin:0 0 20px">Click the button below to reset your password. This link expires in <strong>1 hour</strong>.</p>
+          <a href="${resetUrl}" style="display:inline-block;background:#6366f1;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700;">Reset Password</a>
+          <p style="color:#555;font-size:12px;margin:24px 0 0">If you didn't request this, ignore this email.</p>
+        </div>
+      `,
+    });
+
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post("/api/reset-password", async (req, res) => {
+  const { token, password } = req.body;
+  if (!token || !password) return res.status(400).json({ error: "Token and password required" });
+  try {
+    const { data: reset } = await supabase
+      .from("password_resets").select("*, users(id, email)").eq("token", token).single();
+
+    if (!reset) return res.status(400).json({ error: "Invalid or expired reset link" });
+    if (new Date(reset.expires_at) < new Date()) return res.status(400).json({ error: "Reset link has expired" });
+
+    const hash = await bcrypt.hash(password, 10);
+    await supabase.from("users").update({ password: hash }).eq("id", reset.user_id);
+    await supabase.from("password_resets").delete().eq("token", token);
+
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ── Admin: Users ────────────────────────────────────────
 
 app.get("/api/admin/users", authMiddleware, adminOnly, async (req, res) => {
