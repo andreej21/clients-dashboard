@@ -151,6 +151,7 @@ export default function Admin({ auth, onLogout }) {
                 <option value="app">App Install</option>
                 <option value="lead">Lead Gen</option>
                 <option value="ecom">Ecom</option>
+                <option value="google">Google Ads</option>
               </select>
               {newDash.type === "lead" && (
                 <select value={newDash.conversion_event} onChange={e => setNewDash(p => ({ ...p, conversion_event: e.target.value }))}
