@@ -1,6 +1,21 @@
 import { useState } from "react";
 import API from "./config";
 
+const spinKeyframes = `
+  @keyframes spin {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+  }
+  @keyframes spinReverse {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(-360deg); }
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.5; }
+  }
+`;
+
 const S = {
   inp: { width: "100%", background: "#13131f", border: "1px solid #2a2a3e", borderRadius: 8, padding: "11px 14px", color: "#fff", fontSize: 14, outline: "none", boxSizing: "border-box" },
 };
@@ -45,13 +60,54 @@ export default function Login({ onLogin }) {
   };
 
   return (
-    <div style={{ minHeight: "100vh", background: "#0f0f1a", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "system-ui,sans-serif", padding: "16px" }}>
+    <div style={{ minHeight: "100vh", background: "#0f0f1a", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "system-ui,sans-serif", padding: "16px", position: "relative" }}>
+      <style>{spinKeyframes}</style>
+
+      {/* Top-right SP logo */}
+      <div style={{ position: "fixed", top: 18, right: 24, display: "flex", alignItems: "center", gap: 9, zIndex: 10 }}>
+        <div style={{
+          width: 34, height: 34, borderRadius: 9, background: "linear-gradient(135deg,#6366f1,#8b5cf6)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          boxShadow: "0 0 14px rgba(99,102,241,0.45)",
+          fontWeight: 900, fontSize: 14, color: "#fff", letterSpacing: "-0.5px"
+        }}>SP</div>
+        <span style={{ color: "#aaa", fontSize: 13, fontWeight: 500, letterSpacing: "0.01em" }}>Client Dashboard</span>
+      </div>
+
       <div style={{ width: "100%", maxWidth: 380, background: "#1e1e2e", border: "1px solid #2a2a3e", borderRadius: 16, padding: "32px 28px" }}>
-        
-        <h1 style={{ color: "#fff", fontSize: 22, fontWeight: 800, margin: "0 0 4px" }}>
+
+        {/* Spinning logo at top */}
+        <div style={{ display: "flex", justifyContent: "center", marginBottom: 24 }}>
+          <div style={{ position: "relative", width: 64, height: 64 }}>
+            {/* Outer ring */}
+            <div style={{
+              position: "absolute", inset: 0, borderRadius: "50%",
+              border: "2px solid transparent",
+              borderTopColor: "#6366f1", borderRightColor: "#8b5cf6",
+              animation: "spin 1.4s linear infinite",
+            }} />
+            {/* Middle ring */}
+            <div style={{
+              position: "absolute", inset: 8, borderRadius: "50%",
+              border: "2px solid transparent",
+              borderBottomColor: "#6366f1", borderLeftColor: "#a78bfa",
+              animation: "spinReverse 1s linear infinite",
+            }} />
+            {/* Center SP */}
+            <div style={{
+              position: "absolute", inset: 16, borderRadius: "50%",
+              background: "linear-gradient(135deg,#6366f1,#8b5cf6)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontWeight: 900, fontSize: 13, color: "#fff", letterSpacing: "-0.5px",
+              boxShadow: "0 0 12px rgba(99,102,241,0.5)",
+            }}>SP</div>
+          </div>
+        </div>
+
+        <h1 style={{ color: "#fff", fontSize: 22, fontWeight: 800, margin: "0 0 4px", textAlign: "center" }}>
           <span style={{ color: "#6366f1" }}>SP Media</span> Dashboards
         </h1>
-        <p style={{ color: "#555", fontSize: 13, margin: "0 0 28px" }}>
+        <p style={{ color: "#555", fontSize: 13, margin: "0 0 28px", textAlign: "center" }}>
           {mode === "login" ? "Sign in to your account" : "Reset your password"}
         </p>
 
