@@ -1,5 +1,6 @@
 import { useState } from "react";
 import API from "./config";
+import spLogo from "./assets/sp-logo.png";
 
 const spinKeyframes = `
   @keyframes spin {
@@ -65,12 +66,7 @@ export default function Login({ onLogin }) {
 
       {/* Top-right SP logo */}
       <div style={{ position: "fixed", top: 18, right: 24, display: "flex", alignItems: "center", gap: 9, zIndex: 10 }}>
-        <div style={{
-          width: 34, height: 34, borderRadius: 9, background: "linear-gradient(135deg,#6366f1,#8b5cf6)",
-          display: "flex", alignItems: "center", justifyContent: "center",
-          boxShadow: "0 0 14px rgba(99,102,241,0.45)",
-          fontWeight: 900, fontSize: 14, color: "#fff", letterSpacing: "-0.5px"
-        }}>SP</div>
+        <img src={spLogo} alt="SP Media" style={{ height: 34, width: "auto" }} />
         <span style={{ color: "#aaa", fontSize: 13, fontWeight: 500, letterSpacing: "0.01em" }}>Client Dashboard</span>
       </div>
 
@@ -93,14 +89,15 @@ export default function Login({ onLogin }) {
               borderBottomColor: "#6366f1", borderLeftColor: "#a78bfa",
               animation: "spinReverse 1s linear infinite",
             }} />
-            {/* Center SP */}
+            {/* Center logo */}
             <div style={{
               position: "absolute", inset: 16, borderRadius: "50%",
-              background: "linear-gradient(135deg,#6366f1,#8b5cf6)",
+              background: "#1e1e2e",
               display: "flex", alignItems: "center", justifyContent: "center",
-              fontWeight: 900, fontSize: 13, color: "#fff", letterSpacing: "-0.5px",
               boxShadow: "0 0 12px rgba(99,102,241,0.5)",
-            }}>SP</div>
+            }}>
+              <img src={spLogo} alt="SP" style={{ width: "80%", height: "80%", objectFit: "contain" }} />
+            </div>
           </div>
         </div>
 
