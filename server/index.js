@@ -35,7 +35,6 @@ app.use(cors({
 }));
 app.use(express.json());
 
-
 // ── Google Ads token helper ─────────────────────────────
 async function getGoogleAccessToken() {
   const params = new URLSearchParams({
@@ -181,7 +180,7 @@ app.post("/api/admin/dashboards", authMiddleware, adminOnly, async (req, res) =>
   if (!name || !act_id) return res.status(400).json({ error: "Name and act_id required" });
   const isGoogle = type === "google";
   const cleanActId = isGoogle ? act_id.replace(/-/g, "") : (act_id.startsWith("act_") ? act_id : `act_${act_id}`);
-  const defaultEvent = type === "app" ? "app_install" : type === "lead" ? "lead" : type === "ecom" ? "purchase" : null;
+  const defaultEvent = type === "app" ? "app_install" : type === "lead" ? "lead" : type === "ecom" ? "purchase" : "none";
   const { data, error } = await supabase.from("dashboards")
     .insert({ name, act_id: cleanActId, type, conversion_event: conversion_event || defaultEvent })
     .select().single();
@@ -488,6 +487,50 @@ app.get("/api/dashboards/:id/google/adgroups", authMiddleware, async (req, res) 
     const data = results.map(r => ({
       id: r.adGroup?.id,
       name: r.adGroup?.name,
+      campaignName: r.campaign?.name,
+      spend: (r.metrics?.costMicros || 0) / 1_000_000,
+      impressions: r.metrics?.impressions || 0,
+      clicks: r.metrics?.clicks || 0,
+      conversions: r.metrics?.conversions || 0,
+      cpa: r.metrics?.costPerConversion ? r.metrics.costPerConversion / 1_000_000 : 0,
+      ctr: (r.metrics?.ctr || 0) * 100,
+      cpc: (r.metrics?.averageCpc || 0) / 1_000_000,
+      cpm: (r.metrics?.averageCpm || 0) / 1_000_000,
+    }));
+    res.json({ data });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get("/api/dashboards/:id/google/keywords", authMiddleware, async (req, res) => {
+  const dashId = parseInt(req.params.id);
+  if (!await checkDashboardAccess(req, res, dashId)) return;
+  const { data: dash } = await supabase.from("dashboards").select("act_id").eq("id", dashId).single();
+  if (!dash) return res.status(404).json({ error: "Dashboard not found" });
+  const { since, until } = req.query;
+  try {
+    const results = await googleAdsQuery(dash.act_id, `
+      SELECT
+        ad_group_criterion.keyword.text,
+        ad_group_criterion.keyword.match_type,
+        ad_group.name,
+        campaign.name,
+        metrics.cost_micros,
+        metrics.impressions,
+        metrics.clicks,
+        metrics.conversions,
+        metrics.cost_per_conversion,
+        metrics.ctr,
+        metrics.average_cpc,
+        metrics.average_cpm
+      FROM keyword_view
+      WHERE segments.date BETWEEN '${since}' AND '${until}'
+        AND ad_group_criterion.status != 'REMOVED'
+      ORDER BY metrics.cost_micros DESC
+    `);
+    const data = results.map(r => ({
+      keyword: r.adGroupCriterion?.keyword?.text,
+      matchType: r.adGroupCriterion?.keyword?.matchType,
+      adGroupName: r.adGroup?.name,
       campaignName: r.campaign?.name,
       spend: (r.metrics?.costMicros || 0) / 1_000_000,
       impressions: r.metrics?.impressions || 0,

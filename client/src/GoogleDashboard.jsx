@@ -51,6 +51,7 @@ export default function GoogleDashboard({ auth, onLogout, myDashboards, activeDa
   const [rows, setRows]           = useState(null);
   const [campaigns, setCampaigns] = useState(null);
   const [adgroups, setAdgroups]   = useState(null);
+  const [keywords, setKeywords]   = useState(null);
   const [loading, setLoading]     = useState(false);
   const [error, setError]         = useState("");
   const [activeMetric, setActive] = useState("spend");
@@ -73,21 +74,23 @@ export default function GoogleDashboard({ auth, onLogout, myDashboards, activeDa
   const fetchData = useCallback(async () => {
     if (!activeDash) return;
     setLoading(true); setError("");
-    setRows(null); setCampaigns(null); setAdgroups(null);
+    setRows(null); setCampaigns(null); setAdgroups(null); setKeywords(null);
     try {
       const params = `since=${startDate}&until=${endDate}`;
-      const [r1, r2, r3] = await Promise.all([
+      const [r1, r2, r3, r4] = await Promise.all([
         fetch(`${API}/dashboards/${activeDash.id}/google/account?${params}`,   { headers: h }),
         fetch(`${API}/dashboards/${activeDash.id}/google/campaigns?${params}`, { headers: h }),
         fetch(`${API}/dashboards/${activeDash.id}/google/adgroups?${params}`,  { headers: h }),
+        fetch(`${API}/dashboards/${activeDash.id}/google/keywords?${params}`,  { headers: h }),
       ]);
-      const [d1, d2, d3] = await Promise.all([r1.json(), r2.json(), r3.json()]);
+      const [d1, d2, d3, d4] = await Promise.all([r1.json(), r2.json(), r3.json(), r4.json()]);
       if (d1.error) throw new Error(d1.error);
       if (d2.error) throw new Error(d2.error);
       if (d3.error) throw new Error(d3.error);
       setRows(d1.data || []);
       setCampaigns(d2.data || []);
       setAdgroups(d3.data || []);
+      setKeywords(d4.data || []);
       setActive("spend");
     } catch (e) { setError(e.message); }
     setLoading(false);
@@ -95,7 +98,7 @@ export default function GoogleDashboard({ auth, onLogout, myDashboards, activeDa
 
   const switchDash = dash => {
     setActiveDash(dash);
-    setRows(null); setCampaigns(null); setAdgroups(null);
+    setRows(null); setCampaigns(null); setAdgroups(null); setKeywords(null);
     setError(""); setTab("account");
     setSidebarOpen(false);
     nav(`/dashboards/${dash.id}`);
@@ -183,7 +186,6 @@ export default function GoogleDashboard({ auth, onLogout, myDashboards, activeDa
 
           <div className="main-content" style={{ padding: "24px 20px" }}>
 
-            {/* Header */}
             {activeDash && (
               <div style={{ marginBottom: 20, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -231,6 +233,7 @@ export default function GoogleDashboard({ auth, onLogout, myDashboards, activeDa
                   { key: "account",   label: "📊 Account" },
                   { key: "campaigns", label: `🎯 Campaigns${campaigns ? ` (${campaigns.length})` : ""}` },
                   { key: "adgroups",  label: `📁 Ad Groups${adgroups ? ` (${adgroups.length})` : ""}` },
+                  { key: "keywords",  label: `🔑 Keywords${keywords ? ` (${keywords.length})` : ""}` },
                 ].map(t => (
                   <button key={t.key} onClick={() => setTab(t.key)} style={{
                     background: tab === t.key ? "#4285f4" : "#2a2a3e", border: "none", borderRadius: 8,
@@ -243,8 +246,6 @@ export default function GoogleDashboard({ auth, onLogout, myDashboards, activeDa
 
             {/* Account Tab */}
             {tab === "account" && rows && (<>
-
-              {/* KPI Cards */}
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px,1fr))", gap: 10, marginBottom: 20 }}>
                 {METRICS.map(m => {
                   const active = activeMetric === m.key;
@@ -262,7 +263,6 @@ export default function GoogleDashboard({ auth, onLogout, myDashboards, activeDa
                 })}
               </div>
 
-              {/* Chart */}
               <div style={{ ...S.card, padding: 16, marginBottom: 20 }}>
                 <p style={{ margin: "0 0 14px", fontWeight: 700, fontSize: 14 }}>
                   {activeMeta.label} <span style={{ color: "#555", fontWeight: 400, fontSize: 12 }}>— daily</span>
@@ -281,7 +281,6 @@ export default function GoogleDashboard({ auth, onLogout, myDashboards, activeDa
                 </ResponsiveContainer>
               </div>
 
-              {/* Daily Breakdown */}
               <div style={{ ...S.card, overflow: "hidden" }}>
                 <p style={{ margin: 0, padding: "14px 18px", fontWeight: 700, fontSize: 14, borderBottom: "1px solid #2a2a3e" }}>Daily Breakdown</p>
                 <div style={{ overflowX: "auto" }}>
@@ -325,6 +324,49 @@ export default function GoogleDashboard({ auth, onLogout, myDashboards, activeDa
             {/* Ad Groups Tab */}
             {tab === "adgroups" && adgroups && (
               <GoogleBreakdownTable rows={adgroups} nameLabel="Ad Group" subLabel="Campaign" subKey="campaignName" />
+            )}
+
+            {/* Keywords Tab */}
+            {tab === "keywords" && keywords && (
+              <div style={{ background: "#1e1e2e", border: "1px solid #2a2a3e", borderRadius: 12, overflow: "hidden", marginBottom: 20 }}>
+                <div style={{ overflowX: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                    <thead><tr style={{ background: "#13131f" }}>
+                      <th style={{ ...S.th, minWidth: 160 }}>Keyword</th>
+                      <th style={S.th}>Match Type</th>
+                      <th style={S.th}>Ad Group</th>
+                      <th style={S.th}>Campaign</th>
+                      <th style={S.th}>Spend</th>
+                      <th style={S.th}>Impressions</th>
+                      <th style={S.th}>Clicks</th>
+                      <th style={S.th}>Conversions</th>
+                      <th style={S.th}>CPA</th>
+                      <th style={S.th}>CTR</th>
+                      <th style={S.th}>CPC</th>
+                    </tr></thead>
+                    <tbody>
+                      {keywords.length === 0
+                        ? <tr><td colSpan={11} style={{ ...S.th, textAlign: "center", padding: 20 }}>No data</td></tr>
+                        : keywords.map((row, i) => (
+                          <tr key={i} style={{ borderTop: "1px solid #1a1a2e", background: i % 2 ? "#ffffff04" : "transparent" }}>
+                            <td style={{ ...S.td, color: "#fff", fontWeight: 600 }}>{row.keyword}</td>
+                            <td style={{ ...S.td, color: "#888", fontSize: 11 }}>{row.matchType}</td>
+                            <td style={{ ...S.td, color: "#888", maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis" }}>{row.adGroupName}</td>
+                            <td style={{ ...S.td, color: "#888", maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis" }}>{row.campaignName}</td>
+                            <td style={{ ...S.td, color: "#6366f1", fontWeight: 600 }}>{fmtCurrency(row.spend)}</td>
+                            <td style={S.td}>{fmtNumber(row.impressions)}</td>
+                            <td style={{ ...S.td, color: "#8b5cf6" }}>{fmtNumber(row.clicks)}</td>
+                            <td style={{ ...S.td, color: "#10b981", fontWeight: 600 }}>{parseFloat(row.conversions || 0).toFixed(1)}</td>
+                            <td style={{ ...S.td, color: "#f59e0b" }}>{row.cpa > 0 ? fmtCurrency(row.cpa) : "—"}</td>
+                            <td style={S.td}>{fmtPercent(row.ctr)}</td>
+                            <td style={S.td}>{fmtCurrency(row.cpc)}</td>
+                          </tr>
+                        ))
+                      }
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             )}
 
           </div>
