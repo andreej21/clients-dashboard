@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine } from "recharts";
 import API from "./config";
@@ -95,7 +95,7 @@ const S = {
 };
 
 const authHeaders = token => ({ Authorization: `Bearer ${token}` });
-const typeBadge = { app: { label: "App", color: "#6366f1" }, lead: { label: "Lead Gen", color: "#10b981" }, ecom: { label: "Ecom", color: "#f59e0b" } };
+const typeBadge = { app: { label: "App", color: "#6366f1" }, lead: { label: "Lead Gen", color: "#10b981" }, ecom: { label: "Ecom", color: "#f59e0b" }, google: { label: "Google", color: "#4285f4" } };
 
 function exportCSV(rows, dashName, metrics) {
   const headers = ["Date", ...metrics.map(m => m.label)];
@@ -148,11 +148,9 @@ function exportPDF(dashName, startDate, endDate, totals, metrics, rows, annotati
   w.document.close();
 }
 
-export default function Dashboard({ auth, onLogout }) {
+export default function Dashboard({ auth, onLogout, myDashboards = [], activeDash, setActiveDash }) {
   const nav = useNavigate();
   const { id } = useParams();
-  const [myDashboards, setMyDashboards] = useState([]);
-  const [activeDash, setActiveDash]     = useState(null);
   const [tab, setTab]                   = useState("account");
   const [rows, setRows]                 = useState(null);
   const [ads, setAds]                   = useState(null);
@@ -181,13 +179,15 @@ export default function Dashboard({ auth, onLogout }) {
 
   const h = authHeaders(auth.token);
 
+  // Set activeDash from myDashboards + URL id
   useEffect(() => {
-    fetch(`${API}/my-dashboards`, { headers: h }).then(r => r.json()).then(data => {
-      setMyDashboards(data);
-      const target = id ? data.find(d => d.id === parseInt(id)) : data[0];
-      if (target) { setActiveDash(target); if (!id) nav(`/dashboards/${target.id}`, { replace: true }); }
-    });
-  }, []);
+    if (!myDashboards.length) return;
+    const target = id ? myDashboards.find(d => d.id === parseInt(id)) : myDashboards[0];
+    if (target) {
+      setActiveDash(target);
+      if (!id) nav(`/dashboards/${target.id}`, { replace: true });
+    }
+  }, [myDashboards, id]);
 
   useEffect(() => {
     if (!activeDash) return;
@@ -341,31 +341,17 @@ export default function Dashboard({ auth, onLogout }) {
         }
       `}</style>
 
-      {/* Mobile overlay */}
-      <div className="mobile-overlay" onClick={() => setSidebarOpen(false)} style={{
-        position: "fixed", inset: 0, background: "#000a", zIndex: 40, display: "none",
-      }} />
-
-      {/* Mobile drawer */}
-      <div className="mobile-drawer" style={{
-        position: "fixed", top: 0, left: 0, bottom: 0, width: 260,
-        background: "#1e1e2e", borderRight: "1px solid #2a2a3e",
-        zIndex: 50, transition: "transform .25s", transform: "translateX(-100%)",
-      }}>
+      <div className="mobile-overlay" onClick={() => setSidebarOpen(false)} style={{ position: "fixed", inset: 0, background: "#000a", zIndex: 40, display: "none" }} />
+      <div className="mobile-drawer" style={{ position: "fixed", top: 0, left: 0, bottom: 0, width: 260, background: "#1e1e2e", borderRight: "1px solid #2a2a3e", zIndex: 50, transition: "transform .25s", transform: "translateX(-100%)" }}>
         <Sidebar />
       </div>
 
       <div style={{ minHeight: "100vh", background: "#0f0f1a", color: "#fff", fontFamily: "system-ui,sans-serif", display: "flex" }}>
-
-        {/* Desktop sidebar */}
         <div className="desktop-sidebar" style={{ width: 220, background: "#1e1e2e", borderRight: "1px solid #2a2a3e", display: "flex", flexDirection: "column", flexShrink: 0, minHeight: "100vh" }}>
           <Sidebar />
         </div>
 
-        {/* Main */}
         <div style={{ flex: 1, minWidth: 0 }}>
-
-          {/* Mobile topbar */}
           <div className="mobile-topbar" style={{ display: "none", alignItems: "center", gap: 12, padding: "14px 16px", background: "#1e1e2e", borderBottom: "1px solid #2a2a3e", position: "sticky", top: 0, zIndex: 30 }}>
             <button onClick={() => setSidebarOpen(true)} style={{ background: "none", border: "none", color: "#fff", fontSize: 22, cursor: "pointer", padding: 0, lineHeight: 1 }}>☰</button>
             <p style={{ margin: 0, fontWeight: 800, fontSize: 15 }}><span style={{ color: "#6366f1" }}>SP Media</span> Dashboards</p>
@@ -373,7 +359,6 @@ export default function Dashboard({ auth, onLogout }) {
 
           <div className="main-content" style={{ padding: "24px 20px", overflowX: "hidden" }}>
 
-            {/* Header */}
             {activeDash && (
               <div style={{ marginBottom: 20, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -388,7 +373,6 @@ export default function Dashboard({ auth, onLogout }) {
               </div>
             )}
 
-            {/* Date Controls */}
             <div style={{ ...S.card, padding: 16, marginBottom: 20 }}>
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
                 <div style={{ minWidth: 130, flex: "1 1 130px" }}>
@@ -434,7 +418,6 @@ export default function Dashboard({ auth, onLogout }) {
               </div>
             )}
 
-            {/* Tabs */}
             {rows && (
               <div style={{ display: "flex", gap: 6, marginBottom: 20, flexWrap: "wrap" }}>
                 {[
@@ -458,7 +441,6 @@ export default function Dashboard({ auth, onLogout }) {
               </div>
             )}
 
-            {/* Annotations Panel */}
             {showAnnotPanel && activeDash && (
               <div style={{ ...S.card, padding: 20, marginBottom: 20, borderColor: "#fbbf2444" }}>
                 <p style={{ margin: "0 0 14px", fontWeight: 700, fontSize: 14, color: "#fbbf24" }}>📝 Chart Annotations</p>
@@ -488,31 +470,23 @@ export default function Dashboard({ auth, onLogout }) {
               </div>
             )}
 
-            {/* Campaigns Tab */}
             {tab === "campaigns" && rows && (
               campaigns?.length > 0
                 ? <BreakdownTable rows={campaigns} nameLabel="Campaign" dashType={dashType} convEvent={convEvent} />
                 : <div style={{ textAlign: "center", color: "#555", marginTop: 40, fontSize: 14 }}>No campaign data returned</div>
             )}
-
-            {/* Ad Sets Tab */}
             {tab === "adsets" && rows && (
               adsets?.length > 0
                 ? <BreakdownTable rows={adsets} nameLabel="Ad Set" subLabel="Campaign" subKey="campaignName" dashType={dashType} convEvent={convEvent} />
                 : <div style={{ textAlign: "center", color: "#555", marginTop: 40, fontSize: 14 }}>No ad set data returned</div>
             )}
-
-            {/* Ads Tab */}
             {tab === "ads" && rows && (
               ads?.filter(a => a.spend > 0).length > 0
                 ? <BreakdownTable rows={ads.filter(a => a.spend > 0)} nameLabel="Ad" subLabel="Ad Set" subKey="adsetName" dashType={dashType} convEvent={convEvent} />
                 : <div style={{ textAlign: "center", color: "#555", marginTop: 40, fontSize: 14 }}>No ad data returned</div>
             )}
 
-            {/* Account Tab */}
             {tab === "account" && totals && (<>
-
-              {/* KPI Cards */}
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px,1fr))", gap: 10, marginBottom: 20 }}>
                 {metrics.map(m => {
                   const active = activeMetric === m.key;
@@ -543,7 +517,6 @@ export default function Dashboard({ auth, onLogout }) {
                 })}
               </div>
 
-              {/* Chart */}
               <div style={{ ...S.card, padding: 16, marginBottom: 20 }}>
                 <div style={{ display: "flex", alignItems: "center", marginBottom: 14, gap: 12, flexWrap: "wrap" }}>
                   <p style={{ margin: 0, fontWeight: 700, fontSize: 14 }}>
@@ -585,7 +558,6 @@ export default function Dashboard({ auth, onLogout }) {
                 </ResponsiveContainer>
               </div>
 
-              {/* Top 5 Ads */}
               <div style={{ ...S.card, marginBottom: 20, overflow: "hidden" }}>
                 <div style={{ padding: "14px 18px", borderBottom: "1px solid #2a2a3e", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                   <p style={{ margin: 0, fontWeight: 700, fontSize: 14 }}>Top 5 Ads</p>
@@ -635,7 +607,6 @@ export default function Dashboard({ auth, onLogout }) {
                 </div>
               </div>
 
-              {/* Daily Breakdown */}
               <div style={{ ...S.card, overflow: "hidden" }}>
                 <p style={{ margin: 0, padding: "14px 18px", fontWeight: 700, fontSize: 14, borderBottom: "1px solid #2a2a3e" }}>Daily Breakdown</p>
                 <div style={{ overflowX: "auto" }}>
