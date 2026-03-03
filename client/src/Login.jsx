@@ -11,6 +11,10 @@ const spinKeyframes = `
     from { transform: rotate(0deg); }
     to   { transform: rotate(-360deg); }
   }
+  @keyframes flipY {
+    from { transform: rotateY(0deg); }
+    to   { transform: rotateY(360deg); }
+  }
   @keyframes pulse {
     0%, 100% { opacity: 1; }
     50%       { opacity: 0.5; }
@@ -73,32 +77,8 @@ export default function Login({ onLogin }) {
       <div style={{ width: "100%", maxWidth: 380, background: "#1e1e2e", border: "1px solid #2a2a3e", borderRadius: 16, padding: "32px 28px" }}>
 
         {/* Spinning logo at top */}
-        <div style={{ display: "flex", justifyContent: "center", marginBottom: 24 }}>
-          <div style={{ position: "relative", width: 64, height: 64 }}>
-            {/* Outer ring */}
-            <div style={{
-              position: "absolute", inset: 0, borderRadius: "50%",
-              border: "2px solid transparent",
-              borderTopColor: "#6366f1", borderRightColor: "#8b5cf6",
-              animation: "spin 1.4s linear infinite",
-            }} />
-            {/* Middle ring */}
-            <div style={{
-              position: "absolute", inset: 8, borderRadius: "50%",
-              border: "2px solid transparent",
-              borderBottomColor: "#6366f1", borderLeftColor: "#a78bfa",
-              animation: "spinReverse 1s linear infinite",
-            }} />
-            {/* Center logo */}
-            <div style={{
-              position: "absolute", inset: 16, borderRadius: "50%",
-              background: "#1e1e2e",
-              display: "flex", alignItems: "center", justifyContent: "center",
-              boxShadow: "0 0 12px rgba(99,102,241,0.5)",
-            }}>
-              <img src={spLogo} alt="SP" style={{ width: "80%", height: "80%", objectFit: "contain", animation: "spin 3s linear infinite" }} />
-            </div>
-          </div>
+        <div style={{ display: "flex", justifyContent: "center", marginBottom: 24, perspective: 400 }}>
+          <img src={spLogo} alt="SP" style={{ width: 64, height: 64, objectFit: "contain", animation: "flipY 2.5s linear infinite" }} />
         </div>
 
         <h1 style={{ color: "#fff", fontSize: 22, fontWeight: 800, margin: "0 0 4px", textAlign: "center" }}>
