@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import spLogo from "./assets/sp-logo.png";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine } from "recharts";
 import API from "./config";
 
@@ -285,9 +286,12 @@ export default function Dashboard({ auth, onLogout, myDashboards = [], activeDas
   const Sidebar = () => (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
       <div style={{ padding: "20px 16px 12px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <div>
-          <p style={{ margin: 0, fontWeight: 800, fontSize: 16 }}><span style={{ color: "#6366f1" }}>Clients</span></p>
-          <p style={{ margin: "2px 0 0", color: "#555", fontSize: 11 }}>Dashboards</p>
+        <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+          <img src={spLogo} alt="SP Media" style={{ height: 28, width: "auto" }} />
+          <div>
+            <p style={{ margin: 0, fontWeight: 800, fontSize: 16 }}><span style={{ color: "#6366f1" }}>Clients</span></p>
+            <p style={{ margin: "2px 0 0", color: "#555", fontSize: 11 }}>Dashboards</p>
+          </div>
         </div>
         <button onClick={() => setSidebarOpen(false)} style={{ display: "none", background: "none", border: "none", color: "#555", fontSize: 20, cursor: "pointer", padding: 4, lineHeight: 1 }} className="sidebar-close">✕</button>
       </div>
@@ -354,6 +358,7 @@ export default function Dashboard({ auth, onLogout, myDashboards = [], activeDas
         <div style={{ flex: 1, minWidth: 0 }}>
           <div className="mobile-topbar" style={{ display: "none", alignItems: "center", gap: 12, padding: "14px 16px", background: "#1e1e2e", borderBottom: "1px solid #2a2a3e", position: "sticky", top: 0, zIndex: 30 }}>
             <button onClick={() => setSidebarOpen(true)} style={{ background: "none", border: "none", color: "#fff", fontSize: 22, cursor: "pointer", padding: 0, lineHeight: 1 }}>☰</button>
+            <img src={spLogo} alt="SP Media" style={{ height: 24, width: "auto" }} />
             <p style={{ margin: 0, fontWeight: 800, fontSize: 15 }}><span style={{ color: "#6366f1" }}>SP Media</span> Dashboards</p>
           </div>
 
