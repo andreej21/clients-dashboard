@@ -35,21 +35,6 @@ app.use(cors({
 }));
 app.use(express.json());
 
-// ── Google OAuth callback (temporary — remove after getting refresh token) ──
-app.get("/api/google/callback", async (req, res) => {
-  const { code } = req.query;
-  if (!code) return res.status(400).json({ error: "No code provided" });
-  const params = new URLSearchParams({
-    code,
-    client_id: GOOGLE_CLIENT_ID,
-    client_secret: GOOGLE_CLIENT_SECRET,
-    redirect_uri: "https://clients-dashboard-api.onrender.com/api/google/callback",
-    grant_type: "authorization_code",
-  });
-  const r = await fetch("https://oauth2.googleapis.com/token", { method: "POST", body: params });
-  const data = await r.json();
-  res.json(data);
-});
 
 // ── Google Ads token helper ─────────────────────────────
 async function getGoogleAccessToken() {
