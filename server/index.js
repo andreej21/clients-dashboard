@@ -107,7 +107,7 @@ app.post("/api/forgot-password", async (req, res) => {
     }, { onConflict: "user_id" });
     const resetUrl = `${process.env.FRONTEND_URL}/reset-password?token=${token}`;
     await resend.emails.send({
-      from: "onboarding@resend.dev",
+      from: "noreply@streetpoller.com",
       to: user.email,
       subject: "Reset your SP Media password",
       html: `
