@@ -572,7 +572,7 @@ app.get("/api/dashboards/:id/organic/facebook", authMiddleware, async (req, res)
   const { since, until } = req.query;
   try {
     const timeRange = `since=${since}&until=${until}`;
-    const insightsUrl = `${META_BASE}/${pageId}/insights?metric=page_fans,page_fan_adds,page_impressions_organic,page_post_engagements&period=day&${timeRange}&access_token=${token}`;
+    const insightsUrl = `${META_BASE}/${pageId}/insights?metric=page_fans,page_fan_adds,page_impressions,page_engaged_users&period=day&${timeRange}&access_token=${token}`;
     const postsUrl    = `${META_BASE}/${pageId}/posts?fields=id,message,created_time,full_picture,permalink_url,insights.metric(post_impressions,post_reach,post_engaged_users)&${timeRange}&limit=50&access_token=${token}`;
     const [insRes, postsRes] = await Promise.all([fetch(insightsUrl), fetch(postsUrl)]);
     const [insJson, postsJson] = await Promise.all([insRes.json(), postsRes.json()]);
@@ -591,11 +591,11 @@ app.get("/api/dashboards/:id/organic/facebook", authMiddleware, async (req, res)
     // Build summary — page_fans is a gauge (last value), others are sums
     const summary = insights.reduce((acc, row) => {
       if (row.page_fans !== undefined) acc.page_fans = row.page_fans;
-      acc.page_fan_adds            += (row.page_fan_adds            || 0);
-      acc.page_impressions_organic += (row.page_impressions_organic || 0);
-      acc.page_post_engagements    += (row.page_post_engagements    || 0);
+      acc.page_fan_adds      += (row.page_fan_adds      || 0);
+      acc.page_impressions   += (row.page_impressions   || 0);
+      acc.page_engaged_users += (row.page_engaged_users || 0);
       return acc;
-    }, { page_fans: 0, page_fan_adds: 0, page_impressions_organic: 0, page_post_engagements: 0 });
+    }, { page_fans: 0, page_fan_adds: 0, page_impressions: 0, page_engaged_users: 0 });
     // Normalize posts with flattened insight values
     const posts = (postsJson.data || []).map(post => {
       const pi = post.insights?.data || [];

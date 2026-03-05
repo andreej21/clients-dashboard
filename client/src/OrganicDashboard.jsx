@@ -21,10 +21,10 @@ const authHeaders = token => ({ Authorization: `Bearer ${token}` });
 const ORGANIC_COLOR = "#10b981";
 
 const FB_METRICS = [
-  { key: "page_fans",                label: "Page Fans",           color: "#6366f1" },
-  { key: "page_fan_adds",            label: "New Likes",           color: "#10b981" },
-  { key: "page_impressions_organic", label: "Organic Impressions", color: "#3b82f6" },
-  { key: "page_post_engagements",    label: "Post Engagements",    color: "#f59e0b" },
+  { key: "page_fans",          label: "Page Fans",     color: "#6366f1" },
+  { key: "page_fan_adds",      label: "New Likes",     color: "#10b981" },
+  { key: "page_impressions",   label: "Impressions",   color: "#3b82f6" },
+  { key: "page_engaged_users", label: "Engaged Users", color: "#f59e0b" },
 ];
 
 const IG_METRICS = [
