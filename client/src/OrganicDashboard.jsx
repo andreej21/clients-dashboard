@@ -277,10 +277,9 @@ function OverviewTab({ fbData, igData }) {
   const defaultFbMetric  = chartableMetrics[0]?.key || "";
 
   const [activeFbMetric, setActiveFbMetric] = useState(defaultFbMetric);
-  const [activeIgMetric, setActiveIgMetric] = useState("impressions");
+  const [activeIgMetric, setActiveIgMetric] = useState(null);
 
   const activeFbMeta = ALL_FB_METRICS.find(m => m.key === activeFbMetric) || chartableMetrics[0];
-  const activeIgMeta = IG_METRICS.find(m => m.key === activeIgMetric) || IG_METRICS[0];
   const fbSummary    = fbData.summary || {};
   const pt           = fbData.postTotals || {};
   const igSummary    = igData?.summary || {};
@@ -382,14 +381,14 @@ function OverviewTab({ fbData, igData }) {
       {igData && (() => {
         const igAvail   = igData.igAvailableMetrics || [];
         const igChartable = ALL_IG_METRICS.filter(m => igAvail.includes(m.key));
-        const defIgMetric = igChartable[0]?.key || activeIgMetric;
-        const igMeta    = ALL_IG_METRICS.find(m => m.key === activeIgMetric) || igChartable[0];
+        const currentIgKey = (activeIgMetric && igAvail.includes(activeIgMetric)) ? activeIgMetric : igChartable[0]?.key;
+        const igMeta    = ALL_IG_METRICS.find(m => m.key === currentIgKey) || igChartable[0];
         const igKpi     = ALL_IG_METRICS.filter(m => igAvail.includes(m.key));
         return (<>
           <p style={{ color: "#555", fontSize: 11, fontWeight: 700, letterSpacing: ".08em", margin: "20px 0 12px" }}>INSTAGRAM</p>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px,1fr))", gap: 10, marginBottom: 20 }}>
             {igKpi.map(m => {
-              const active = activeIgMetric === m.key;
+              const active = currentIgKey === m.key;
               return (
                 <div key={m.key} onClick={() => setActiveIgMetric(m.key)} style={{
                   ...S.card, padding: "12px 14px", cursor: "pointer",
@@ -417,7 +416,7 @@ function OverviewTab({ fbData, igData }) {
                     contentStyle={{ background: "#13131f", border: `1px solid ${igMeta.color}`, borderRadius: 8, fontSize: 12 }}
                     formatter={v => [fmtNumber(v), igMeta.label]}
                   />
-                  <Line type="monotone" dataKey={activeIgMetric} stroke={igMeta.color} strokeWidth={2.5} dot={{ r: 3, fill: igMeta.color }} />
+                  <Line type="monotone" dataKey={currentIgKey} stroke={igMeta.color} strokeWidth={2.5} dot={{ r: 3, fill: igMeta.color }} />
                 </LineChart>
               </ResponsiveContainer>
             </div>
