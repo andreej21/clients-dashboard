@@ -365,12 +365,12 @@ function OverviewTab({ fbData, igData }) {
       </p>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px,1fr))", gap: 10, marginBottom: 20 }}>
         {[
-          { label: "Reactions",  value: pt.total_reactions, color: "#e1306c" },
-          { label: "Comments",   value: pt.total_comments,  color: "#f59e0b" },
-          { label: "Shares",     value: pt.total_shares,    color: "#10b981" },
-          { label: "Post Views", value: pt.total_views,     color: "#8b5cf6" },
-          { label: "Post Reach", value: pt.total_reach,     color: "#3b82f6" },
-        ].map(({ label, value, color }) => (
+          { label: "Reactions",    value: pt.total_reactions,   color: "#e1306c" },
+          { label: "Comments",     value: pt.total_comments,    color: "#f59e0b" },
+          { label: "Shares",       value: pt.total_shares,      color: "#10b981" },
+          { label: "Post Views",   value: pt.total_views,       color: "#8b5cf6" },
+          { label: "Video Views",  value: pt.total_video_views, color: "#ec4899" },
+        ].filter(m => m.value > 0 || m.label === "Reactions").map(({ label, value, color }) => (
           <div key={label} style={{ ...S.card, padding: "12px 14px" }}>
             <p style={{ margin: "0 0 4px", fontSize: 10, color: "#666", fontWeight: 600, letterSpacing: ".04em" }}>{label.toUpperCase()}</p>
             <p style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>{fmtNumber(value || 0)}</p>
@@ -450,37 +450,31 @@ function PostsTab({ posts }) {
             <tr style={{ background: "#13131f" }}>
               <th style={{ ...S.th, minWidth: 220 }}>Post</th>
               <th style={{ ...S.th, minWidth: 90 }}>Date</th>
-              <SortTh k="post_impressions"   label="Views"          minWidth={80} />
-              <SortTh k="post_reach"         label="Reach"          minWidth={80} />
-              <SortTh k="reactions"          label="Reactions"      minWidth={90} />
-              <SortTh k="comments"           label="Comments"       minWidth={90} />
-              <SortTh k="shares"             label="Shares"         minWidth={70} />
-              <SortTh k="post_engaged_users" label="Engaged"        minWidth={80} />
+              <SortTh k="reactions" label="Reactions" minWidth={90} />
+              <SortTh k="comments"  label="Comments"  minWidth={90} />
+              <SortTh k="shares"    label="Shares"    minWidth={70} />
               <th style={S.th}>Link</th>
             </tr>
           </thead>
           <tbody>
             {sorted.length === 0
-              ? <tr><td colSpan={9} style={{ ...S.th, textAlign: "center", padding: 20 }}>No posts in this period</td></tr>
+              ? <tr><td colSpan={6} style={{ ...S.th, textAlign: "center", padding: 20 }}>No posts in this period</td></tr>
               : sorted.map((post, i) => (
                 <tr key={post.id} style={{ borderTop: "1px solid #1a1a2e", background: i % 2 ? "#ffffff04" : "transparent" }}>
-                  <td style={{ ...S.td, maxWidth: 260 }}>
+                  <td style={{ ...S.td, maxWidth: 280 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       {post.full_picture && (
                         <img src={post.full_picture} style={{ width: 36, height: 36, objectFit: "cover", borderRadius: 4, flexShrink: 0 }} alt="" />
                       )}
                       <span style={{ color: "#ccc", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>
-                        {post.message?.slice(0, 70) || "(no caption)"}
+                        {post.message?.slice(0, 80) || "(no caption)"}
                       </span>
                     </div>
                   </td>
                   <td style={{ ...S.td, color: "#888" }}>{new Date(post.created_time).toLocaleDateString()}</td>
-                  <td style={{ ...S.td, color: "#3b82f6", fontWeight: 600 }}>{fmtNumber(post.post_impressions)}</td>
-                  <td style={S.td}>{fmtNumber(post.post_reach)}</td>
                   <td style={{ ...S.td, color: "#e1306c", fontWeight: 600 }}>{fmtNumber(post.reactions)}</td>
                   <td style={{ ...S.td, color: "#f59e0b" }}>{fmtNumber(post.comments)}</td>
                   <td style={{ ...S.td, color: "#10b981" }}>{fmtNumber(post.shares)}</td>
-                  <td style={{ ...S.td, color: "#aaa" }}>{fmtNumber(post.post_engaged_users)}</td>
                   <td style={S.td}>
                     <a href={post.permalink_url} target="_blank" rel="noopener noreferrer" style={{ color: "#6366f1", fontSize: 12 }}>View ↗</a>
                   </td>

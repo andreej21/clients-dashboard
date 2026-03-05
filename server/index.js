@@ -632,20 +632,25 @@ app.get("/api/dashboards/:id/organic/facebook", authMiddleware, async (req, res)
     const pageToken = pageInfoJson.access_token || token;
     const fanCount  = pageInfoJson.fan_count || 0;
 
-    // Step 2: Fetch ALL published content (posts + reels + videos) via published_posts.
-    // /posts only returns regular posts; /published_posts includes Reels & all media types.
-    // Paginate up to 200 posts to match the selected date range.
+    // Step 2: Fetch ALL content types in parallel:
+    //   /published_posts → regular posts, photos, links
+    //   /video_posts     → Facebook Reels + native videos (NOT returned by /published_posts)
+    // Merge and deduplicate by post ID.
     const postFields = "id,message,created_time,full_picture,permalink_url,reactions.summary(total_count),shares,comments.summary(total_count)";
-    let allRawPosts = [];
-    let nextUrl = `${META_BASE}/${pageId}/published_posts?fields=${postFields}&${timeRange}&limit=100&access_token=${pageToken}`;
-    // Fetch up to 2 pages (200 posts max) to keep response time reasonable
-    for (let page = 0; page < 2 && nextUrl; page++) {
-      const pageRes  = await fetch(nextUrl);
-      const pageJson = await pageRes.json();
-      if (pageJson.error) throw new Error(`[posts] ${pageJson.error.message || JSON.stringify(pageJson.error)}`);
-      allRawPosts = allRawPosts.concat(pageJson.data || []);
-      nextUrl = pageJson.paging?.next || null;
-    }
+    const [pubRes, vidRes] = await Promise.all([
+      fetch(`${META_BASE}/${pageId}/published_posts?fields=${postFields}&${timeRange}&limit=100&access_token=${pageToken}`),
+      fetch(`${META_BASE}/${pageId}/video_posts?fields=${postFields}&${timeRange}&limit=100&access_token=${pageToken}`),
+    ]);
+    const [pubJson, vidJson] = await Promise.all([pubRes.json(), vidRes.json()]);
+    if (pubJson.error) throw new Error(`[posts] ${pubJson.error.message || JSON.stringify(pubJson.error)}`);
+    // video_posts errors are non-fatal (page may not have videos)
+    const pubPosts = pubJson.data || [];
+    const vidPosts = vidJson.error ? [] : (vidJson.data || []);
+    // Merge and deduplicate (video_posts and published_posts can overlap for video entries)
+    const seenIds   = new Set(pubPosts.map(p => p.id));
+    const allRawPosts = [...pubPosts, ...vidPosts.filter(p => !seenIds.has(p.id))];
+    // Sort merged list by date descending
+    allRawPosts.sort((a, b) => new Date(b.created_time) - new Date(a.created_time));
     const postsJson = { data: allRawPosts };
 
     // Step 3: Probe each page-level insight metric INDIVIDUALLY (in parallel).
@@ -722,51 +727,36 @@ app.get("/api/dashboards/:id/organic/facebook", authMiddleware, async (req, res)
       return acc;
     }, { page_fans: fanCount });
 
-    // Step 4: Fetch per-post insights for each post (non-fatal; different endpoint/metrics)
+    // Step 4: Build posts array — reactions/shares/comments come from the posts API (reliable).
+    // Per-post impressions/reach require the Insights API per post which often fails;
+    // instead we use page_posts_impressions (page-level) for the total in postTotals.
     const rawPosts = postsJson.data || [];
-    const postInsightsMap = {};
-    if (rawPosts.length > 0) {
-      await Promise.all(rawPosts.map(async (post) => {
-        try {
-          const piUrl  = `${META_BASE}/${post.id}/insights?metric=post_impressions,post_impressions_unique,post_engaged_users&access_token=${pageToken}`;
-          const piRes  = await fetch(piUrl);
-          const piJson = await piRes.json();
-          if (!piJson.error) {
-            postInsightsMap[post.id] = {};
-            for (const m of piJson.data || []) {
-              postInsightsMap[post.id][m.name] = m.values?.[0]?.value || 0;
-            }
-          }
-        } catch (_) { /* non-fatal */ }
-      }));
-    }
+    const posts = rawPosts.map(post => ({
+      id:            post.id,
+      message:       post.message || "",
+      created_time:  post.created_time,
+      full_picture:  post.full_picture || null,
+      permalink_url: post.permalink_url,
+      reactions:     post.reactions?.summary?.total_count || 0,
+      shares:        post.shares?.count                   || 0,
+      comments:      post.comments?.summary?.total_count  || 0,
+    }));
 
-    const posts = rawPosts.map(post => {
-      const pi = postInsightsMap[post.id] || {};
-      return {
-        id:                 post.id,
-        message:            post.message || "",
-        created_time:       post.created_time,
-        full_picture:       post.full_picture || null,
-        permalink_url:      post.permalink_url,
-        post_impressions:   pi.post_impressions        || 0,
-        post_reach:         pi.post_impressions_unique || 0,
-        post_engaged_users: pi.post_engaged_users      || 0,
-        reactions:          post.reactions?.summary?.total_count || 0,
-        shares:             post.shares?.count             || 0,
-        comments:           post.comments?.summary?.total_count || 0,
-      };
-    });
-
-    // Aggregate post-level totals (no extra API calls — already fetched above)
+    // Aggregate post totals from posts API (reactions/shares/comments always work).
+    // For total_views use page_posts_impressions from page-level insights (reliable).
     const postTotals = posts.reduce((acc, p) => {
       acc.total_reactions += p.reactions;
       acc.total_shares    += p.shares;
       acc.total_comments  += p.comments;
-      acc.total_views     += p.post_impressions;
-      acc.total_reach     += p.post_reach;
       return acc;
-    }, { total_reactions: 0, total_shares: 0, total_comments: 0, total_views: 0, total_reach: 0 });
+    }, {
+      total_reactions: 0,
+      total_shares:    0,
+      total_comments:  0,
+      // page-level totals (from insights — more reliable than per-post API)
+      total_views:     summary.page_posts_impressions || 0,
+      total_video_views: summary.page_video_views     || 0,
+    });
 
     res.json({ insights, summary, posts, postTotals, insightsError, availableMetrics, metricErrors, metricNoData });
   } catch (e) { res.status(500).json({ error: e.message }); }
