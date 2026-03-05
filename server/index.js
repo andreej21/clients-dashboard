@@ -572,12 +572,17 @@ app.get("/api/dashboards/:id/organic/facebook", authMiddleware, async (req, res)
   const { since, until } = req.query;
   try {
     const timeRange = `since=${since}&until=${until}`;
-    const insightsUrl = `${META_BASE}/${pageId}/insights?metric=page_fans,page_fan_adds,page_impressions,page_engaged_users&period=day&${timeRange}&access_token=${token}`;
-    const postsUrl    = `${META_BASE}/${pageId}/posts?fields=id,message,created_time,full_picture,permalink_url,insights.metric(post_impressions,post_reach,post_engaged_users)&${timeRange}&limit=50&access_token=${token}`;
-    const [insRes, postsRes] = await Promise.all([fetch(insightsUrl), fetch(postsUrl)]);
-    const [insJson, postsJson] = await Promise.all([insRes.json(), postsRes.json()]);
-    if (insJson.error)   throw new Error(insJson.error.message   || JSON.stringify(insJson.error));
-    if (postsJson.error) throw new Error(postsJson.error.message || JSON.stringify(postsJson.error));
+    // page_fans fetched separately as a page field (avoids period-mixing issues in Insights)
+    const pageInfoUrl = `${META_BASE}/${pageId}?fields=fan_count&access_token=${token}`;
+    const insightsUrl = `${META_BASE}/${pageId}/insights?metric=page_impressions,page_engaged_users&period=day&${timeRange}&access_token=${token}`;
+    const postsUrl    = `${META_BASE}/${pageId}/posts?fields=id,message,created_time,full_picture,permalink_url&${timeRange}&limit=50&access_token=${token}`;
+
+    // Fetch all three in parallel — individual error tags help pinpoint failures
+    const [pageInfoRes, insRes, postsRes] = await Promise.all([fetch(pageInfoUrl), fetch(insightsUrl), fetch(postsUrl)]);
+    const [pageInfoJson, insJson, postsJson] = await Promise.all([pageInfoRes.json(), insRes.json(), postsRes.json()]);
+    if (pageInfoJson.error) throw new Error(`[page-info] ${pageInfoJson.error.message || JSON.stringify(pageInfoJson.error)}`);
+    if (insJson.error)      throw new Error(`[insights]  ${insJson.error.message      || JSON.stringify(insJson.error)}`);
+    if (postsJson.error)    throw new Error(`[posts]     ${postsJson.error.message    || JSON.stringify(postsJson.error)}`);
     // Pivot per-metric arrays into daily rows keyed by date
     const dailyMap = {};
     for (const metric of insJson.data || []) {
@@ -588,29 +593,23 @@ app.get("/api/dashboards/:id/organic/facebook", authMiddleware, async (req, res)
       }
     }
     const insights = Object.values(dailyMap).sort((a, b) => a.date.localeCompare(b.date));
-    // Build summary — page_fans is a gauge (last value), others are sums
+    // Build summary — page_fans comes from direct page field, others are sums
     const summary = insights.reduce((acc, row) => {
-      if (row.page_fans !== undefined) acc.page_fans = row.page_fans;
-      acc.page_fan_adds      += (row.page_fan_adds      || 0);
       acc.page_impressions   += (row.page_impressions   || 0);
       acc.page_engaged_users += (row.page_engaged_users || 0);
       return acc;
-    }, { page_fans: 0, page_fan_adds: 0, page_impressions: 0, page_engaged_users: 0 });
-    // Normalize posts with flattened insight values
-    const posts = (postsJson.data || []).map(post => {
-      const pi = post.insights?.data || [];
-      const getVal = name => pi.find(m => m.name === name)?.values?.[0]?.value || 0;
-      return {
-        id:                 post.id,
-        message:            post.message || "",
-        created_time:       post.created_time,
-        full_picture:       post.full_picture || null,
-        permalink_url:      post.permalink_url,
-        post_impressions:   getVal("post_impressions"),
-        post_reach:         getVal("post_reach"),
-        post_engaged_users: getVal("post_engaged_users"),
-      };
-    });
+    }, { page_fans: pageInfoJson.fan_count || 0, page_fan_adds: 0, page_impressions: 0, page_engaged_users: 0 });
+    // Normalize posts (no inline insights for now — avoids metric errors)
+    const posts = (postsJson.data || []).map(post => ({
+      id:                 post.id,
+      message:            post.message || "",
+      created_time:       post.created_time,
+      full_picture:       post.full_picture || null,
+      permalink_url:      post.permalink_url,
+      post_impressions:   0,
+      post_reach:         0,
+      post_engaged_users: 0,
+    }));
     res.json({ insights, summary, posts });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
