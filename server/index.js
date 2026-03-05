@@ -648,8 +648,9 @@ app.get("/api/dashboards/:id/organic/facebook", authMiddleware, async (req, res)
       "page_engaged_users",      // legacy — may work for classic pages
       "page_fans",               // cumulative fans over time
     ];
-    const metricResults = {};  // metric → array of { end_time, value }
+    const metricResults = {};  // metric → array of value points (only when non-empty)
     const metricErrors  = {};  // metric → error string
+    const metricNoData  = [];  // metrics that returned OK but had no values in this range
     await Promise.all(METRIC_CANDIDATES.map(async (metric) => {
       try {
         const url = `${META_BASE}/${pageId}/insights?metric=${metric}&period=day&${timeRange}&access_token=${pageToken}`;
@@ -657,15 +658,20 @@ app.get("/api/dashboards/:id/organic/facebook", authMiddleware, async (req, res)
         const j   = await r.json();
         if (j.error) {
           metricErrors[metric] = `(${j.error.code}) ${j.error.message}`;
-        } else if (j.data?.[0]) {
-          metricResults[metric] = j.data[0].values || [];
+        } else {
+          const values = j.data?.[0]?.values || [];
+          if (values.length > 0) {
+            metricResults[metric] = values;  // has real data
+          } else {
+            metricNoData.push(metric);       // API accepted metric but no data in range
+          }
         }
       } catch (e) {
         metricErrors[metric] = e.message;
       }
     }));
 
-    // Build a daily map from whichever metrics succeeded
+    // Build a daily map from whichever metrics have actual data
     const dailyMap = {};
     for (const [metric, values] of Object.entries(metricResults)) {
       for (const point of values) {
@@ -675,14 +681,26 @@ app.get("/api/dashboards/:id/organic/facebook", authMiddleware, async (req, res)
       }
     }
     const insights         = Object.values(dailyMap).sort((a, b) => a.date.localeCompare(b.date));
-    const availableMetrics = Object.keys(metricResults);
-    const insightsError    = availableMetrics.length === 0
-      ? `No metrics available. Errors: ${JSON.stringify(metricErrors)}`
-      : null;
+    const availableMetrics = Object.keys(metricResults);  // only metrics with real data
 
-    // Summary: fan_count from page node + sums of whatever insight metrics we got
+    // Build insightsError message from what failed / returned no data
+    let insightsError = null;
+    if (availableMetrics.length === 0) {
+      const errParts = [];
+      if (Object.keys(metricErrors).length > 0)
+        errParts.push(`API errors: ${JSON.stringify(metricErrors)}`);
+      if (metricNoData.length > 0)
+        errParts.push(`No data in range for: ${metricNoData.join(', ')}`);
+      insightsError = errParts.length > 0 ? errParts.join(' | ') : 'No insight data returned';
+    }
+
+    // Summary: page_fans always from fan_count (it's a cumulative total — don't sum daily values).
+    // All other metrics are daily counts so we sum them over the period.
     const summary = insights.reduce((acc, row) => {
-      for (const m of availableMetrics) acc[m] = (acc[m] || 0) + (row[m] || 0);
+      for (const m of availableMetrics) {
+        if (m === "page_fans") continue;  // handled separately via fanCount
+        acc[m] = (acc[m] || 0) + (row[m] || 0);
+      }
       return acc;
     }, { page_fans: fanCount });
 
@@ -719,7 +737,7 @@ app.get("/api/dashboards/:id/organic/facebook", authMiddleware, async (req, res)
       };
     });
 
-    res.json({ insights, summary, posts, insightsError, availableMetrics, metricErrors });
+    res.json({ insights, summary, posts, insightsError, availableMetrics, metricErrors, metricNoData });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

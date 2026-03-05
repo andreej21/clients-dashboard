@@ -286,6 +286,18 @@ function OverviewTab({ fbData, igData }) {
           ⚠️ Insights unavailable: <strong>{fbData.insightsError}</strong>
         </div>
       )}
+      {/* Show partial failures even when some metrics worked */}
+      {!fbData.insightsError && Object.keys(fbData.metricErrors || {}).length > 0 && (
+        <div style={{ background: "#1a1a2e", border: "1px solid #2a2a3e", borderRadius: 8, padding: "10px 14px", marginBottom: 16, fontSize: 11, color: "#555" }}>
+          ℹ️ Some metrics unavailable for this page type —{" "}
+          {Object.entries(fbData.metricErrors || {}).map(([k, v]) => (
+            <span key={k}><span style={{ color: "#888" }}>{k}</span>: {v.split(')')[0]}){" "}</span>
+          ))}
+          {(fbData.metricNoData || []).length > 0 && (
+            <span> | No data in range: {fbData.metricNoData.join(', ')}</span>
+          )}
+        </div>
+      )}
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px,1fr))", gap: 10, marginBottom: 20 }}>
         {kpiMetrics.map(m => {
