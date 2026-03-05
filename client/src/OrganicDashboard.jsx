@@ -267,9 +267,7 @@ export default function OrganicDashboard({ auth, onLogout, myDashboards, activeD
 // ── Overview Tab ─────────────────────────────────────────
 
 function OverviewTab({ fbData, igData }) {
-  // availableMetrics tells us which metrics actually returned data from the API
   const availableMetrics = fbData.availableMetrics || [];
-  // Metrics that have daily chart data (intersect ALL_FB_METRICS with what came back)
   const chartableMetrics = ALL_FB_METRICS.filter(m => availableMetrics.includes(m.key));
   const defaultFbMetric  = chartableMetrics[0]?.key || "";
 
@@ -279,12 +277,20 @@ function OverviewTab({ fbData, igData }) {
   const activeFbMeta = ALL_FB_METRICS.find(m => m.key === activeFbMetric) || chartableMetrics[0];
   const activeIgMeta = IG_METRICS.find(m => m.key === activeIgMetric) || IG_METRICS[0];
   const fbSummary    = fbData.summary || {};
+  const pt           = fbData.postTotals || {};
   const igSummary    = igData?.summary || {};
 
-  // KPI cards: page_fans is always available (from fan_count); others only if in availableMetrics
+  // KPI cards: page_fans always shown; others only if in availableMetrics
   const kpiMetrics = ALL_FB_METRICS.filter(m =>
     m.key === "page_fans" || availableMetrics.includes(m.key)
   );
+
+  // Net followers (derived)
+  const netFollowers = (fbSummary.page_daily_follows || 0) - (fbSummary.page_daily_unfollows || 0);
+  const showNetFollowers = availableMetrics.includes("page_daily_follows") || availableMetrics.includes("page_daily_unfollows");
+
+  // Count how many metrics failed (for condensed info bar)
+  const errCount = Object.keys(fbData.metricErrors || {}).length;
 
   return (
     <div>
@@ -295,20 +301,15 @@ function OverviewTab({ fbData, igData }) {
           ⚠️ Insights unavailable: <strong>{fbData.insightsError}</strong>
         </div>
       )}
-      {/* Show partial failures even when some metrics worked */}
-      {!fbData.insightsError && Object.keys(fbData.metricErrors || {}).length > 0 && (
-        <div style={{ background: "#1a1a2e", border: "1px solid #2a2a3e", borderRadius: 8, padding: "10px 14px", marginBottom: 16, fontSize: 11, color: "#555" }}>
-          ℹ️ Some metrics unavailable for this page type —{" "}
-          {Object.entries(fbData.metricErrors || {}).map(([k, v]) => (
-            <span key={k}><span style={{ color: "#888" }}>{k}</span>: {v.split(')')[0]}){" "}</span>
-          ))}
-          {(fbData.metricNoData || []).length > 0 && (
-            <span> | No data in range: {fbData.metricNoData.join(', ')}</span>
-          )}
+      {/* Condensed partial-failure notice */}
+      {!fbData.insightsError && errCount > 0 && (
+        <div style={{ background: "#1a1a2e", border: "1px solid #2a2a3e", borderRadius: 8, padding: "8px 12px", marginBottom: 16, fontSize: 11, color: "#444" }}>
+          ℹ️ {errCount} legacy metric{errCount > 1 ? "s" : ""} unavailable for this page type (New Pages Experience)
         </div>
       )}
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px,1fr))", gap: 10, marginBottom: 20 }}>
+      {/* ── Page insight KPI cards ── */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px,1fr))", gap: 10, marginBottom: showNetFollowers ? 10 : 20 }}>
         {kpiMetrics.map(m => {
           const isChartable = availableMetrics.includes(m.key);
           const active      = activeFbMetric === m.key && isChartable;
@@ -327,6 +328,15 @@ function OverviewTab({ fbData, igData }) {
             </div>
           );
         })}
+        {/* Net followers derived card */}
+        {showNetFollowers && (
+          <div style={{ ...S.card, padding: "12px 14px" }}>
+            <p style={{ margin: "0 0 4px", fontSize: 10, color: netFollowers >= 0 ? "#10b981" : "#ef4444", fontWeight: 600, letterSpacing: ".04em" }}>NET FOLLOWERS</p>
+            <p style={{ margin: 0, fontSize: 20, fontWeight: 800, color: netFollowers >= 0 ? "#10b981" : "#ef4444" }}>
+              {netFollowers >= 0 ? "+" : ""}{fmtNumber(netFollowers)}
+            </p>
+          </div>
+        )}
       </div>
 
       {chartableMetrics.length > 0 && activeFbMeta && (
@@ -348,6 +358,25 @@ function OverviewTab({ fbData, igData }) {
           </ResponsiveContainer>
         </div>
       )}
+
+      {/* ── Post Stats (from posts API — always available) ── */}
+      <p style={{ color: "#555", fontSize: 11, fontWeight: 700, letterSpacing: ".08em", margin: "20px 0 12px" }}>
+        POST STATS <span style={{ color: "#333", fontWeight: 400 }}>— aggregated from {fbData.posts?.length || 0} posts in period</span>
+      </p>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px,1fr))", gap: 10, marginBottom: 20 }}>
+        {[
+          { label: "Reactions",  value: pt.total_reactions, color: "#e1306c" },
+          { label: "Comments",   value: pt.total_comments,  color: "#f59e0b" },
+          { label: "Shares",     value: pt.total_shares,    color: "#10b981" },
+          { label: "Post Views", value: pt.total_views,     color: "#8b5cf6" },
+          { label: "Post Reach", value: pt.total_reach,     color: "#3b82f6" },
+        ].map(({ label, value, color }) => (
+          <div key={label} style={{ ...S.card, padding: "12px 14px" }}>
+            <p style={{ margin: "0 0 4px", fontSize: 10, color: "#666", fontWeight: 600, letterSpacing: ".04em" }}>{label.toUpperCase()}</p>
+            <p style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>{fmtNumber(value || 0)}</p>
+          </div>
+        ))}
+      </div>
 
       {/* ── Instagram Section ── */}
       {igData && (<>
@@ -424,6 +453,7 @@ function PostsTab({ posts }) {
               <SortTh k="post_impressions"   label="Views"          minWidth={80} />
               <SortTh k="post_reach"         label="Reach"          minWidth={80} />
               <SortTh k="reactions"          label="Reactions"      minWidth={90} />
+              <SortTh k="comments"           label="Comments"       minWidth={90} />
               <SortTh k="shares"             label="Shares"         minWidth={70} />
               <SortTh k="post_engaged_users" label="Engaged"        minWidth={80} />
               <th style={S.th}>Link</th>
@@ -431,7 +461,7 @@ function PostsTab({ posts }) {
           </thead>
           <tbody>
             {sorted.length === 0
-              ? <tr><td colSpan={8} style={{ ...S.th, textAlign: "center", padding: 20 }}>No posts in this period</td></tr>
+              ? <tr><td colSpan={9} style={{ ...S.th, textAlign: "center", padding: 20 }}>No posts in this period</td></tr>
               : sorted.map((post, i) => (
                 <tr key={post.id} style={{ borderTop: "1px solid #1a1a2e", background: i % 2 ? "#ffffff04" : "transparent" }}>
                   <td style={{ ...S.td, maxWidth: 260 }}>
@@ -448,8 +478,9 @@ function PostsTab({ posts }) {
                   <td style={{ ...S.td, color: "#3b82f6", fontWeight: 600 }}>{fmtNumber(post.post_impressions)}</td>
                   <td style={S.td}>{fmtNumber(post.post_reach)}</td>
                   <td style={{ ...S.td, color: "#e1306c", fontWeight: 600 }}>{fmtNumber(post.reactions)}</td>
+                  <td style={{ ...S.td, color: "#f59e0b" }}>{fmtNumber(post.comments)}</td>
                   <td style={{ ...S.td, color: "#10b981" }}>{fmtNumber(post.shares)}</td>
-                  <td style={{ ...S.td, color: "#f59e0b" }}>{fmtNumber(post.post_engaged_users)}</td>
+                  <td style={{ ...S.td, color: "#aaa" }}>{fmtNumber(post.post_engaged_users)}</td>
                   <td style={S.td}>
                     <a href={post.permalink_url} target="_blank" rel="noopener noreferrer" style={{ color: "#6366f1", fontSize: 12 }}>View ↗</a>
                   </td>

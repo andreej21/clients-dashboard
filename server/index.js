@@ -632,8 +632,8 @@ app.get("/api/dashboards/:id/organic/facebook", authMiddleware, async (req, res)
     const pageToken = pageInfoJson.access_token || token;
     const fanCount  = pageInfoJson.fan_count || 0;
 
-    // Step 2: Fetch posts (reliable endpoint; include reactions + shares count)
-    const postsRes  = await fetch(`${META_BASE}/${pageId}/posts?fields=id,message,created_time,full_picture,permalink_url,reactions.summary(total_count),shares&${timeRange}&limit=50&access_token=${pageToken}`);
+    // Step 2: Fetch posts (reliable endpoint; include reactions, shares, comments)
+    const postsRes  = await fetch(`${META_BASE}/${pageId}/posts?fields=id,message,created_time,full_picture,permalink_url,reactions.summary(total_count),shares,comments.summary(total_count)&${timeRange}&limit=50&access_token=${pageToken}`);
     const postsJson = await postsRes.json();
     if (postsJson.error) throw new Error(`[posts] ${postsJson.error.message || JSON.stringify(postsJson.error)}`);
 
@@ -742,11 +742,22 @@ app.get("/api/dashboards/:id/organic/facebook", authMiddleware, async (req, res)
         post_reach:         pi.post_impressions_unique || 0,
         post_engaged_users: pi.post_engaged_users      || 0,
         reactions:          post.reactions?.summary?.total_count || 0,
-        shares:             post.shares?.count || 0,
+        shares:             post.shares?.count             || 0,
+        comments:           post.comments?.summary?.total_count || 0,
       };
     });
 
-    res.json({ insights, summary, posts, insightsError, availableMetrics, metricErrors, metricNoData });
+    // Aggregate post-level totals (no extra API calls — already fetched above)
+    const postTotals = posts.reduce((acc, p) => {
+      acc.total_reactions += p.reactions;
+      acc.total_shares    += p.shares;
+      acc.total_comments  += p.comments;
+      acc.total_views     += p.post_impressions;
+      acc.total_reach     += p.post_reach;
+      return acc;
+    }, { total_reactions: 0, total_shares: 0, total_comments: 0, total_views: 0, total_reach: 0 });
+
+    res.json({ insights, summary, posts, postTotals, insightsError, availableMetrics, metricErrors, metricNoData });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
