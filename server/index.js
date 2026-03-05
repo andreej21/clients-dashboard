@@ -632,8 +632,8 @@ app.get("/api/dashboards/:id/organic/facebook", authMiddleware, async (req, res)
     const pageToken = pageInfoJson.access_token || token;
     const fanCount  = pageInfoJson.fan_count || 0;
 
-    // Step 2: Fetch posts (reliable endpoint)
-    const postsRes  = await fetch(`${META_BASE}/${pageId}/posts?fields=id,message,created_time,full_picture,permalink_url&${timeRange}&limit=50&access_token=${pageToken}`);
+    // Step 2: Fetch posts (reliable endpoint; include reactions + shares count)
+    const postsRes  = await fetch(`${META_BASE}/${pageId}/posts?fields=id,message,created_time,full_picture,permalink_url,reactions.summary(total_count),shares&${timeRange}&limit=50&access_token=${pageToken}`);
     const postsJson = await postsRes.json();
     if (postsJson.error) throw new Error(`[posts] ${postsJson.error.message || JSON.stringify(postsJson.error)}`);
 
@@ -641,12 +641,19 @@ app.get("/api/dashboards/:id/organic/facebook", authMiddleware, async (req, res)
     // Many v1 metrics are deprecated for New Pages Experience pages in v17+.
     // We try all candidates and keep whichever ones the API accepts.
     const METRIC_CANDIDATES = [
-      "page_post_engagements",   // total engagements on page posts (NPE-compatible)
-      "page_views_total",        // total page views (NPE-compatible)
-      "page_fan_adds_unique",    // unique new followers per day (NPE-compatible)
-      "page_impressions",        // legacy — may work for classic pages
-      "page_engaged_users",      // legacy — may work for classic pages
-      "page_fans",               // cumulative fans over time
+      // ── NPE-compatible (New Pages Experience) ─────────────────
+      "page_post_engagements",        // total engagements on page posts
+      "page_views_total",             // total page visits/views
+      "page_daily_follows",           // new followers per day (NPE replacement for page_fan_adds)
+      "page_daily_unfollows",         // lost followers per day (NPE)
+      "page_posts_impressions",       // impressions on page posts (NPE replacement for page_impressions)
+      "page_video_views",             // video views (NPE)
+      "page_content_activity",        // reactions + comments + shares on posts (NPE)
+      // ── Legacy metrics (still work on classic pages) ──────────
+      "page_fan_adds_unique",         // new unique followers per day (legacy)
+      "page_impressions",             // total impressions (legacy)
+      "page_engaged_users",           // unique engaged users (legacy)
+      "page_fans",                    // cumulative fans over time (legacy)
     ];
     const metricResults = {};  // metric → array of value points (only when non-empty)
     const metricErrors  = {};  // metric → error string
@@ -734,6 +741,8 @@ app.get("/api/dashboards/:id/organic/facebook", authMiddleware, async (req, res)
         post_impressions:   pi.post_impressions        || 0,
         post_reach:         pi.post_impressions_unique || 0,
         post_engaged_users: pi.post_engaged_users      || 0,
+        reactions:          post.reactions?.summary?.total_count || 0,
+        shares:             post.shares?.count || 0,
       };
     });
 

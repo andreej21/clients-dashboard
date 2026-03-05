@@ -22,13 +22,22 @@ const ORGANIC_COLOR = "#10b981";
 
 // All possible Facebook Page metric names we may receive from the API.
 // The backend probes each one individually; we render whichever come back.
+// NPE = New Pages Experience (v17+), Legacy = classic pages only.
 const ALL_FB_METRICS = [
-  { key: "page_fans",             label: "Page Fans",        color: "#6366f1" },
-  { key: "page_post_engagements", label: "Engagements",      color: "#f59e0b" },
-  { key: "page_views_total",      label: "Page Views",       color: "#3b82f6" },
-  { key: "page_fan_adds_unique",  label: "New Followers",    color: "#10b981" },
-  { key: "page_impressions",      label: "Impressions",      color: "#3b82f6" },
-  { key: "page_engaged_users",    label: "Engaged Users",    color: "#f59e0b" },
+  // Always shown (from fan_count, not insights)
+  { key: "page_fans",                label: "Followers",       color: "#6366f1" },
+  // NPE-compatible metrics
+  { key: "page_post_engagements",    label: "Engagements",     color: "#f59e0b" },
+  { key: "page_views_total",         label: "Page Views",      color: "#3b82f6" },
+  { key: "page_daily_follows",       label: "New Followers",   color: "#10b981" },
+  { key: "page_daily_unfollows",     label: "Unfollows",       color: "#ef4444" },
+  { key: "page_posts_impressions",   label: "Post Views",      color: "#8b5cf6" },
+  { key: "page_video_views",         label: "Video Views",     color: "#ec4899" },
+  { key: "page_content_activity",    label: "Content Activity",color: "#06b6d4" },
+  // Legacy metrics (classic pages)
+  { key: "page_fan_adds_unique",     label: "New Followers",   color: "#10b981" },
+  { key: "page_impressions",         label: "Impressions",     color: "#3b82f6" },
+  { key: "page_engaged_users",       label: "Engaged Users",   color: "#f59e0b" },
 ];
 
 const IG_METRICS = [
@@ -412,15 +421,17 @@ function PostsTab({ posts }) {
             <tr style={{ background: "#13131f" }}>
               <th style={{ ...S.th, minWidth: 220 }}>Post</th>
               <th style={{ ...S.th, minWidth: 90 }}>Date</th>
-              <SortTh k="post_impressions"   label="Impressions"    minWidth={100} />
+              <SortTh k="post_impressions"   label="Views"          minWidth={80} />
               <SortTh k="post_reach"         label="Reach"          minWidth={80} />
-              <SortTh k="post_engaged_users" label="Engaged Users"  minWidth={110} />
+              <SortTh k="reactions"          label="Reactions"      minWidth={90} />
+              <SortTh k="shares"             label="Shares"         minWidth={70} />
+              <SortTh k="post_engaged_users" label="Engaged"        minWidth={80} />
               <th style={S.th}>Link</th>
             </tr>
           </thead>
           <tbody>
             {sorted.length === 0
-              ? <tr><td colSpan={6} style={{ ...S.th, textAlign: "center", padding: 20 }}>No posts in this period</td></tr>
+              ? <tr><td colSpan={8} style={{ ...S.th, textAlign: "center", padding: 20 }}>No posts in this period</td></tr>
               : sorted.map((post, i) => (
                 <tr key={post.id} style={{ borderTop: "1px solid #1a1a2e", background: i % 2 ? "#ffffff04" : "transparent" }}>
                   <td style={{ ...S.td, maxWidth: 260 }}>
@@ -436,7 +447,9 @@ function PostsTab({ posts }) {
                   <td style={{ ...S.td, color: "#888" }}>{new Date(post.created_time).toLocaleDateString()}</td>
                   <td style={{ ...S.td, color: "#3b82f6", fontWeight: 600 }}>{fmtNumber(post.post_impressions)}</td>
                   <td style={S.td}>{fmtNumber(post.post_reach)}</td>
-                  <td style={{ ...S.td, color: "#10b981" }}>{fmtNumber(post.post_engaged_users)}</td>
+                  <td style={{ ...S.td, color: "#e1306c", fontWeight: 600 }}>{fmtNumber(post.reactions)}</td>
+                  <td style={{ ...S.td, color: "#10b981" }}>{fmtNumber(post.shares)}</td>
+                  <td style={{ ...S.td, color: "#f59e0b" }}>{fmtNumber(post.post_engaged_users)}</td>
                   <td style={S.td}>
                     <a href={post.permalink_url} target="_blank" rel="noopener noreferrer" style={{ color: "#6366f1", fontSize: 12 }}>View ↗</a>
                   </td>
