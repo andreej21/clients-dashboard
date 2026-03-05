@@ -24,6 +24,8 @@ export default function Admin({ auth, onLogout }) {
   const [accessModal, setAccessModal] = useState(null);
   const [accessList, setAccessList] = useState([]);
   const [addAccess, setAddAccess] = useState({ user_id: "", role: "viewer" });
+  const [tokenModal, setTokenModal] = useState(null);
+  const [newToken, setNewToken] = useState("");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
@@ -87,6 +89,18 @@ export default function Admin({ auth, onLogout }) {
     if (!confirm("Delete this user?")) return;
     await fetch(`${API}/admin/users/${id}`, { method: "DELETE", headers: h });
     loadUsers(); flash("User deleted");
+  };
+
+  const updateToken = async () => {
+    if (!newToken.trim()) return flash("Paste the new token first", true);
+    const res = await fetch(`${API}/admin/dashboards/${tokenModal.id}`, {
+      method: "PATCH", headers: h,
+      body: JSON.stringify({ page_token: newToken.trim(), type: tokenModal.type }),
+    });
+    const data = await res.json();
+    if (!res.ok) return flash(data.error || "Update failed", true);
+    setTokenModal(null); setNewToken("");
+    loadDashboards(); flash("Token updated!");
   };
 
   const grantAccess = async () => {
@@ -213,8 +227,11 @@ export default function Admin({ auth, onLogout }) {
                       </td>
                       <td style={{ ...S.td, color: "#10b981" }}>{d.users?.length || 0} user{d.users?.length !== 1 ? "s" : ""}</td>
                       <td style={S.td}>
-                        <div style={{ display: "flex", gap: 6 }}>
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                           <button onClick={() => openAccessModal(d)} style={{ ...S.btn("#1d4ed8"), fontSize: 12, padding: "6px 10px" }}>Manage Access</button>
+                          {d.type === "organic" && (
+                            <button onClick={() => { setTokenModal(d); setNewToken(""); }} style={{ ...S.btn("#065f46"), fontSize: 12, padding: "6px 10px" }}>🔑 Token</button>
+                          )}
                           <button onClick={() => deleteDashboard(d.id)} style={{ ...S.btn("#7f1d1d"), fontSize: 12, padding: "6px 10px" }}>Delete</button>
                         </div>
                       </td>
@@ -277,6 +294,33 @@ export default function Admin({ auth, onLogout }) {
             </div>
           </div>
         </>)}
+
+        {/* ── TOKEN MODAL ── */}
+        {tokenModal && (
+          <div style={{ position: "fixed", inset: 0, background: "#000a", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50, padding: 16 }}>
+            <div style={{ background: "#1e1e2e", border: "1px solid #2a2a3e", borderRadius: 16, padding: 24, width: "100%", maxWidth: 480 }}>
+              <div style={{ display: "flex", alignItems: "center", marginBottom: 16 }}>
+                <div style={{ flex: 1 }}>
+                  <p style={{ margin: 0, fontWeight: 700, fontSize: 15 }}>Update Page Token</p>
+                  <p style={{ margin: "2px 0 0", color: "#10b981", fontSize: 13 }}>{tokenModal.name}</p>
+                </div>
+                <button onClick={() => setTokenModal(null)} style={{ background: "none", border: "none", color: "#555", fontSize: 22, cursor: "pointer" }}>✕</button>
+              </div>
+              <p style={{ color: "#888", fontSize: 12, margin: "0 0 12px" }}>Paste the new long-lived Page Access Token from Business Manager:</p>
+              <textarea
+                value={newToken}
+                onChange={e => setNewToken(e.target.value)}
+                placeholder="EAAxxxxx..."
+                rows={4}
+                style={{ ...S.inp, width: "100%", resize: "vertical", fontFamily: "monospace", fontSize: 11 }}
+              />
+              <div style={{ display: "flex", gap: 8, marginTop: 14, justifyContent: "flex-end" }}>
+                <button onClick={() => setTokenModal(null)} style={S.btn()}>Cancel</button>
+                <button onClick={updateToken} style={{ ...S.btn("#10b981", "#fff") }}>Save Token</button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* ── ACCESS MODAL ── */}
         {accessModal && (
