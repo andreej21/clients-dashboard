@@ -354,7 +354,7 @@ function OverviewTab({ fbData, igData }) {
               <YAxis tick={{ fill: "#555", fontSize: 9 }} width={55} tickFormatter={v => fmtNumber(v)} />
               <Tooltip
                 contentStyle={{ background: "#13131f", color: "#e5e5e5", border: `1px solid ${activeFbMeta.color}`, borderRadius: 8, fontSize: 12 }}
-                formatter={v => [fmtNumber(v), activeFbMeta.label]}
+                labelStyle={{ color: "#e5e5e5" }} itemStyle={{ color: "#e5e5e5" }} formatter={v => [fmtNumber(v), activeFbMeta.label]}
               />
               <Line type="monotone" dataKey={activeFbMetric} stroke={activeFbMeta.color} strokeWidth={2.5} dot={{ r: 3, fill: activeFbMeta.color }} />
             </LineChart>
@@ -418,7 +418,7 @@ function OverviewTab({ fbData, igData }) {
                   <YAxis tick={{ fill: "#555", fontSize: 9 }} width={55} tickFormatter={v => fmtNumber(v)} />
                   <Tooltip
                     contentStyle={{ background: "#13131f", color: "#e5e5e5", border: `1px solid ${igMeta.color}`, borderRadius: 8, fontSize: 12 }}
-                    formatter={v => [fmtNumber(v), igMeta.label]}
+                    labelStyle={{ color: "#e5e5e5" }} itemStyle={{ color: "#e5e5e5" }} formatter={v => [fmtNumber(v), igMeta.label]}
                   />
                   <Line type="monotone" dataKey={currentIgKey} stroke={igMeta.color} strokeWidth={2.5} dot={{ r: 3, fill: igMeta.color }} />
                 </LineChart>
@@ -487,7 +487,7 @@ function PostsTab({ posts }) {
                 <YAxis tick={{ fill: "#555", fontSize: 9 }} width={40} tickFormatter={v => fmtNumber(v)} />
                 <Tooltip
                   contentStyle={{ background: "#13131f", color: "#e5e5e5", border: "1px solid #2a2a3e", borderRadius: 8, fontSize: 12 }}
-                  formatter={v => [fmtNumber(v), "Avg engagement"]}
+                  labelStyle={{ color: "#e5e5e5" }} itemStyle={{ color: "#e5e5e5" }} formatter={v => [fmtNumber(v), "Avg engagement"]}
                 />
                 <Bar dataKey="avg" radius={[3, 3, 0, 0]}>
                   {dayData.map((entry, i) => (
@@ -509,7 +509,7 @@ function PostsTab({ posts }) {
                 <YAxis type="category" dataKey="type" tick={{ fill: "#ccc", fontSize: 11 }} width={80} />
                 <Tooltip
                   contentStyle={{ background: "#13131f", color: "#e5e5e5", border: "1px solid #2a2a3e", borderRadius: 8, fontSize: 12 }}
-                  formatter={v => [v, "Posts"]}
+                  labelStyle={{ color: "#e5e5e5" }} itemStyle={{ color: "#e5e5e5" }} formatter={v => [v, "Posts"]}
                 />
                 <Bar dataKey="count" radius={[0, 3, 3, 0]}>
                   {mixData.map((entry, i) => (
@@ -686,7 +686,7 @@ function InstagramTab({ igData, igError }) {
               <YAxis tick={{ fill: "#555", fontSize: 9 }} width={55} tickFormatter={v => fmtNumber(v)} />
               <Tooltip
                 contentStyle={{ background: "#13131f", color: "#e5e5e5", border: `1px solid ${activeIgMeta.color}`, borderRadius: 8, fontSize: 12 }}
-                formatter={v => [fmtNumber(v), activeIgMeta.label]}
+                labelStyle={{ color: "#e5e5e5" }} itemStyle={{ color: "#e5e5e5" }} formatter={v => [fmtNumber(v), activeIgMeta.label]}
               />
               <Line type="monotone" dataKey={currentKey} stroke={activeIgMeta.color} strokeWidth={2.5} dot={{ r: 3, fill: activeIgMeta.color }} />
             </LineChart>
@@ -713,7 +713,7 @@ function InstagramTab({ igData, igError }) {
               <YAxis tick={{ fill: "#555", fontSize: 9 }} width={45} />
               <Tooltip
                 contentStyle={{ background: "#13131f", color: "#e5e5e5", border: "1px solid #2a2a3e", borderRadius: 8, fontSize: 12 }}
-                formatter={v => [v >= 0 ? `+${v}` : String(v), "Net followers"]}
+                labelStyle={{ color: "#e5e5e5" }} itemStyle={{ color: "#e5e5e5" }} formatter={v => [v >= 0 ? `+${v}` : String(v), "Net followers"]}
               />
               <Bar dataKey="net_followers" radius={[3, 3, 0, 0]}>
                 {(igData.insights || []).map((entry, i) => (
@@ -739,7 +739,7 @@ function InstagramTab({ igData, igError }) {
                 <YAxis type="category" dataKey="type" tick={{ fill: "#ccc", fontSize: 11 }} width={60} />
                 <Tooltip
                   contentStyle={{ background: "#13131f", color: "#e5e5e5", border: "1px solid #2a2a3e", borderRadius: 8, fontSize: 12 }}
-                  formatter={(v, name) => [v, name === "count" ? "Posts" : "Avg Engagement"]}
+                  labelStyle={{ color: "#e5e5e5" }} itemStyle={{ color: "#e5e5e5" }} formatter={(v, name) => [v, name === "count" ? "Posts" : "Avg Engagement"]}
                 />
                 <Bar dataKey="count" fill="#c13584" radius={[0, 3, 3, 0]} name="count" />
               </BarChart>
@@ -760,7 +760,7 @@ function InstagramTab({ igData, igError }) {
                 <YAxis tick={{ fill: "#555", fontSize: 9 }} width={40} tickFormatter={v => fmtNumber(v)} />
                 <Tooltip
                   contentStyle={{ background: "#13131f", color: "#e5e5e5", border: "1px solid #2a2a3e", borderRadius: 8, fontSize: 12 }}
-                  formatter={v => [fmtNumber(v), "Avg engagement"]}
+                  labelStyle={{ color: "#e5e5e5" }} itemStyle={{ color: "#e5e5e5" }} formatter={v => [fmtNumber(v), "Avg engagement"]}
                 />
                 <Bar dataKey="avg" radius={[3, 3, 0, 0]}>
                   {dayData.map((entry, i) => (
