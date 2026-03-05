@@ -78,7 +78,7 @@ export default function OrganicDashboard({ auth, onLogout, myDashboards, activeD
       ]);
       const [fbJson, igJson] = await Promise.all([fbRes.json(), igRes.json()]);
       if (fbJson.error) throw new Error(fbJson.error);
-      setFbData(fbJson);
+      setFbData(fbJson);  // fbJson.insightsError may be set if Meta rejected the insights call
       if (igJson.error === "not_connected") {
         setIgError("not_connected");
       } else if (igJson.error) {
@@ -266,6 +266,11 @@ function OverviewTab({ fbData, igData }) {
     <div>
       {/* ── Facebook Section ── */}
       <p style={{ color: "#555", fontSize: 11, fontWeight: 700, letterSpacing: ".08em", margin: "0 0 12px" }}>FACEBOOK PAGE</p>
+      {fbData.insightsError && (
+        <div style={{ background: "#3f1f0f", border: "1px solid #f59e0b", borderRadius: 8, padding: "10px 14px", marginBottom: 16, fontSize: 12, color: "#f59e0b" }}>
+          ⚠️ Insights unavailable: <strong>{fbData.insightsError}</strong>
+        </div>
+      )}
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px,1fr))", gap: 10, marginBottom: 20 }}>
         {FB_METRICS.map(m => {

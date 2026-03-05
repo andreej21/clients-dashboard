@@ -577,28 +577,40 @@ app.get("/api/dashboards/:id/organic/facebook", authMiddleware, async (req, res)
     const insightsUrl = `${META_BASE}/${pageId}/insights?metric=page_impressions,page_engaged_users&period=day&${timeRange}&access_token=${token}`;
     const postsUrl    = `${META_BASE}/${pageId}/posts?fields=id,message,created_time,full_picture,permalink_url&${timeRange}&limit=50&access_token=${token}`;
 
-    // Fetch all three in parallel — individual error tags help pinpoint failures
-    const [pageInfoRes, insRes, postsRes] = await Promise.all([fetch(pageInfoUrl), fetch(insightsUrl), fetch(postsUrl)]);
-    const [pageInfoJson, insJson, postsJson] = await Promise.all([pageInfoRes.json(), insRes.json(), postsRes.json()]);
+    // Fetch page info and posts in parallel; insights fetched separately (non-fatal)
+    const [pageInfoRes, postsRes] = await Promise.all([fetch(pageInfoUrl), fetch(postsUrl)]);
+    const [pageInfoJson, postsJson] = await Promise.all([pageInfoRes.json(), postsRes.json()]);
     if (pageInfoJson.error) throw new Error(`[page-info] ${pageInfoJson.error.message || JSON.stringify(pageInfoJson.error)}`);
-    if (insJson.error)      throw new Error(`[insights]  ${insJson.error.message      || JSON.stringify(insJson.error)}`);
     if (postsJson.error)    throw new Error(`[posts]     ${postsJson.error.message    || JSON.stringify(postsJson.error)}`);
-    // Pivot per-metric arrays into daily rows keyed by date
-    const dailyMap = {};
-    for (const metric of insJson.data || []) {
-      for (const point of metric.values || []) {
-        const date = point.end_time.split("T")[0];
-        if (!dailyMap[date]) dailyMap[date] = { date };
-        dailyMap[date][metric.name] = point.value;
+
+    // Insights — non-fatal: if Meta rejects the metrics, return empty data + the raw Meta error
+    let insights = [];
+    let insightsError = null;
+    let summary = { page_fans: pageInfoJson.fan_count || 0, page_fan_adds: 0, page_impressions: 0, page_engaged_users: 0 };
+    try {
+      const insRes  = await fetch(insightsUrl);
+      const insJson = await insRes.json();
+      if (insJson.error) {
+        insightsError = `Meta Insights error (code ${insJson.error.code}): ${insJson.error.message}`;
+      } else {
+        const dailyMap = {};
+        for (const metric of insJson.data || []) {
+          for (const point of metric.values || []) {
+            const date = point.end_time.split("T")[0];
+            if (!dailyMap[date]) dailyMap[date] = { date };
+            dailyMap[date][metric.name] = point.value;
+          }
+        }
+        insights = Object.values(dailyMap).sort((a, b) => a.date.localeCompare(b.date));
+        summary = insights.reduce((acc, row) => {
+          acc.page_impressions   += (row.page_impressions   || 0);
+          acc.page_engaged_users += (row.page_engaged_users || 0);
+          return acc;
+        }, { page_fans: pageInfoJson.fan_count || 0, page_fan_adds: 0, page_impressions: 0, page_engaged_users: 0 });
       }
+    } catch (e) {
+      insightsError = e.message;
     }
-    const insights = Object.values(dailyMap).sort((a, b) => a.date.localeCompare(b.date));
-    // Build summary — page_fans comes from direct page field, others are sums
-    const summary = insights.reduce((acc, row) => {
-      acc.page_impressions   += (row.page_impressions   || 0);
-      acc.page_engaged_users += (row.page_engaged_users || 0);
-      return acc;
-    }, { page_fans: pageInfoJson.fan_count || 0, page_fan_adds: 0, page_impressions: 0, page_engaged_users: 0 });
     // Normalize posts (no inline insights for now — avoids metric errors)
     const posts = (postsJson.data || []).map(post => ({
       id:                 post.id,
@@ -610,7 +622,7 @@ app.get("/api/dashboards/:id/organic/facebook", authMiddleware, async (req, res)
       post_reach:         0,
       post_engaged_users: 0,
     }));
-    res.json({ insights, summary, posts });
+    res.json({ insights, summary, posts, insightsError });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
