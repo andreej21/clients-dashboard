@@ -96,7 +96,7 @@ const S = {
 };
 
 const authHeaders = token => ({ Authorization: `Bearer ${token}` });
-const typeBadge = { app: { label: "App", color: "#6366f1" }, lead: { label: "Lead Gen", color: "#10b981" }, ecom: { label: "Ecom", color: "#f59e0b" }, google: { label: "Google", color: "#4285f4" } };
+const typeBadge = { app: { label: "App", color: "#6366f1" }, lead: { label: "Lead Gen", color: "#10b981" }, ecom: { label: "Ecom", color: "#f59e0b" }, google: { label: "Google", color: "#4285f4" }, organic: { label: "Organic", color: "#10b981" } };
 
 function exportCSV(rows, dashName, metrics) {
   const headers = ["Date", ...metrics.map(m => m.label)];

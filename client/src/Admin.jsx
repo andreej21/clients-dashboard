@@ -19,7 +19,7 @@ export default function Admin({ auth, onLogout }) {
   const [tab, setTab] = useState("dashboards");
   const [dashboards, setDashboards] = useState([]);
   const [users, setUsers] = useState([]);
-  const [newDash, setNewDash] = useState({ name: "", act_id: "", type: "app", conversion_event: "" });
+  const [newDash, setNewDash] = useState({ name: "", act_id: "", type: "app", conversion_event: "", page_token: "" });
   const [newUser, setNewUser] = useState({ email: "", password: "", role: "viewer" });
   const [accessModal, setAccessModal] = useState(null);
   const [accessList, setAccessList] = useState([]);
@@ -59,10 +59,12 @@ export default function Admin({ auth, onLogout }) {
 
   const createDashboard = async () => {
     if (!newDash.name || !newDash.act_id) return flash("Name and Act ID required", true);
-    const res = await fetch(`${API}/admin/dashboards`, { method: "POST", headers: h, body: JSON.stringify(newDash) });
+    const body = { ...newDash };
+    if (!body.page_token) delete body.page_token;
+    const res = await fetch(`${API}/admin/dashboards`, { method: "POST", headers: h, body: JSON.stringify(body) });
     const data = await res.json();
     if (!res.ok) return flash(data.error, true);
-    setNewDash({ name: "", act_id: "", type: "app", conversion_event: "" });
+    setNewDash({ name: "", act_id: "", type: "app", conversion_event: "", page_token: "" });
     loadDashboards(); flash("Dashboard created!");
   };
 
@@ -144,14 +146,17 @@ export default function Admin({ auth, onLogout }) {
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
               <input placeholder="Client name" value={newDash.name} onChange={e => setNewDash(p => ({ ...p, name: e.target.value }))}
                 style={{ ...S.inp, flex: "1 1 150px" }} />
-              <input placeholder="Act ID (e.g. act_123456789)" value={newDash.act_id} onChange={e => setNewDash(p => ({ ...p, act_id: e.target.value }))}
+              <input
+                placeholder={newDash.type === "organic" ? "Facebook Page ID (e.g. 123456789)" : "Act ID (e.g. act_123456789)"}
+                value={newDash.act_id} onChange={e => setNewDash(p => ({ ...p, act_id: e.target.value }))}
                 style={{ ...S.inp, flex: "2 1 180px" }} />
-              <select value={newDash.type} onChange={e => setNewDash(p => ({ ...p, type: e.target.value, conversion_event: "" }))}
-                style={{ ...S.inp, flex: "0 0 130px" }}>
+              <select value={newDash.type} onChange={e => setNewDash(p => ({ ...p, type: e.target.value, conversion_event: "", page_token: "" }))}
+                style={{ ...S.inp, flex: "0 0 140px" }}>
                 <option value="app">App Install</option>
                 <option value="lead">Lead Gen</option>
                 <option value="ecom">Ecom</option>
                 <option value="google">Google Ads</option>
+                <option value="organic">Organic Social</option>
               </select>
               {newDash.type === "lead" && (
                 <select value={newDash.conversion_event} onChange={e => setNewDash(p => ({ ...p, conversion_event: e.target.value }))}
@@ -159,6 +164,14 @@ export default function Admin({ auth, onLogout }) {
                   <option value="lead">Leads</option>
                   <option value="complete_registration">Complete Registrations</option>
                 </select>
+              )}
+              {newDash.type === "organic" && (
+                <input
+                  placeholder="Page Access Token"
+                  value={newDash.page_token}
+                  onChange={e => setNewDash(p => ({ ...p, page_token: e.target.value }))}
+                  style={{ ...S.inp, flex: "2 1 200px" }}
+                />
               )}
               <button onClick={createDashboard} style={{ ...S.btn(), flexShrink: 0 }}>Create</button>
             </div>
@@ -186,12 +199,18 @@ export default function Admin({ auth, onLogout }) {
                       <td style={{ ...S.td, color: "#6366f1", fontFamily: "monospace", fontSize: 12 }}>{d.act_id}</td>
                       <td style={S.td}>
                         <span style={{
-                          background: d.type === "app" ? "#6366f122" : d.type === "lead" ? "#10b98122" : "#f59e0b22",
-                          color: d.type === "app" ? "#6366f1" : d.type === "lead" ? "#10b981" : "#f59e0b",
+                          background: d.type === "app" ? "#6366f122" : d.type === "lead" ? "#10b98122" : d.type === "google" ? "#4285f422" : d.type === "organic" ? "#10b98122" : "#f59e0b22",
+                          color: d.type === "app" ? "#6366f1" : d.type === "lead" ? "#10b981" : d.type === "google" ? "#4285f4" : d.type === "organic" ? "#10b981" : "#f59e0b",
                           borderRadius: 5, padding: "2px 8px", fontSize: 11, fontWeight: 600
-                        }}>{d.type === "app" ? "App" : d.type === "lead" ? "Lead Gen" : "Ecom"}</span>
+                        }}>
+                          {d.type === "app" ? "App" : d.type === "lead" ? "Lead Gen" : d.type === "google" ? "Google" : d.type === "organic" ? "Organic" : "Ecom"}
+                        </span>
                       </td>
-                      <td style={{ ...S.td, color: "#888", fontSize: 12 }}>{d.conversion_event || "—"}</td>
+                      <td style={{ ...S.td, color: "#888", fontSize: 12 }}>
+                        {d.type === "organic"
+                          ? <span style={{ color: d.page_token ? "#10b981" : "#f87171", fontSize: 11, fontWeight: 600 }}>{d.page_token ? "✓ Token set" : "⚠ No token"}</span>
+                          : (d.conversion_event || "—")}
+                      </td>
                       <td style={{ ...S.td, color: "#10b981" }}>{d.users?.length || 0} user{d.users?.length !== 1 ? "s" : ""}</td>
                       <td style={S.td}>
                         <div style={{ display: "flex", gap: 6 }}>

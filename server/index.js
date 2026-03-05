@@ -182,13 +182,16 @@ app.get("/api/admin/dashboards", authMiddleware, adminOnly, async (req, res) => 
 });
 
 app.post("/api/admin/dashboards", authMiddleware, adminOnly, async (req, res) => {
-  const { name, act_id, type = "app", conversion_event } = req.body;
+  const { name, act_id, type = "app", conversion_event, page_token } = req.body;
   if (!name || !act_id) return res.status(400).json({ error: "Name and act_id required" });
-  const isGoogle = type === "google";
-  const cleanActId = isGoogle ? act_id.replace(/-/g, "") : (act_id.startsWith("act_") ? act_id : `act_${act_id}`);
+  const isGoogle  = type === "google";
+  const isOrganic = type === "organic";
+  const cleanActId = (isGoogle || isOrganic) ? act_id.replace(/-/g, "") : (act_id.startsWith("act_") ? act_id : `act_${act_id}`);
   const defaultEvent = type === "app" ? "app_install" : type === "lead" ? "lead" : type === "ecom" ? "purchase" : "none";
+  const insertObj = { name, act_id: cleanActId, type, conversion_event: conversion_event || defaultEvent };
+  if (page_token) insertObj.page_token = page_token;
   const { data, error } = await supabase.from("dashboards")
-    .insert({ name, act_id: cleanActId, type, conversion_event: conversion_event || defaultEvent })
+    .insert(insertObj)
     .select().single();
   if (error) {
     if (error.code === "23505") return res.status(400).json({ error: "Act ID already exists" });
@@ -198,12 +201,16 @@ app.post("/api/admin/dashboards", authMiddleware, adminOnly, async (req, res) =>
 });
 
 app.patch("/api/admin/dashboards/:id", authMiddleware, adminOnly, async (req, res) => {
-  const { name, act_id, type, conversion_event } = req.body;
+  const { name, act_id, type, conversion_event, page_token } = req.body;
   const updates = {};
   if (name) updates.name = name;
-  if (act_id) updates.act_id = act_id.startsWith("act_") ? act_id : `act_${act_id}`;
+  if (act_id) {
+    const isOrganic = type === "organic" || type === "google";
+    updates.act_id = isOrganic ? act_id.replace(/-/g, "") : (act_id.startsWith("act_") ? act_id : `act_${act_id}`);
+  }
   if (type) updates.type = type;
   if (conversion_event) updates.conversion_event = conversion_event;
+  if (page_token !== undefined) updates.page_token = page_token || null;
   const { data, error } = await supabase.from("dashboards").update(updates).eq("id", req.params.id).select().single();
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
@@ -248,12 +255,13 @@ app.delete("/api/dashboards/:id/access/:userId", authMiddleware, async (req, res
 // ── Client: My Dashboards ───────────────────────────────
 
 app.get("/api/my-dashboards", authMiddleware, async (req, res) => {
+  const safeFields = "id, name, act_id, type, conversion_event, created_at";
   if (req.user.role === "admin") {
-    const { data } = await supabase.from("dashboards").select("*").order("name");
+    const { data } = await supabase.from("dashboards").select(safeFields).order("name");
     return res.json(data || []);
   }
   const { data } = await supabase.from("dashboard_access")
-    .select("role, dashboards(*)").eq("user_id", req.user.id);
+    .select(`role, dashboards(${safeFields})`).eq("user_id", req.user.id);
   res.json(data?.map(d => ({ ...d.dashboards, access_role: d.role })) || []);
 });
 
@@ -548,6 +556,125 @@ app.get("/api/dashboards/:id/google/keywords", authMiddleware, async (req, res) 
       cpm: (r.metrics?.averageCpm || 0) / 1_000_000,
     }));
     res.json({ data });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Organic: Facebook Page ───────────────────────────────
+
+app.get("/api/dashboards/:id/organic/facebook", authMiddleware, async (req, res) => {
+  const dashId = parseInt(req.params.id);
+  if (!await checkDashboardAccess(req, res, dashId)) return;
+  const { data: dash } = await supabase.from("dashboards").select("act_id, page_token").eq("id", dashId).single();
+  if (!dash) return res.status(404).json({ error: "Dashboard not found" });
+  if (!dash.page_token) return res.status(400).json({ error: "No page_token configured for this dashboard" });
+  const pageId = dash.act_id;
+  const token  = dash.page_token;
+  const { since, until } = req.query;
+  try {
+    const timeRange = `since=${since}&until=${until}`;
+    const insightsUrl = `${META_BASE}/${pageId}/insights?metric=page_fans,page_fan_adds,page_impressions_organic,page_post_engagements&period=day&${timeRange}&access_token=${token}`;
+    const postsUrl    = `${META_BASE}/${pageId}/posts?fields=id,message,created_time,full_picture,permalink_url,insights.metric(post_impressions,post_reach,post_engaged_users)&${timeRange}&limit=50&access_token=${token}`;
+    const [insRes, postsRes] = await Promise.all([fetch(insightsUrl), fetch(postsUrl)]);
+    const [insJson, postsJson] = await Promise.all([insRes.json(), postsRes.json()]);
+    if (insJson.error)   throw new Error(insJson.error.message   || JSON.stringify(insJson.error));
+    if (postsJson.error) throw new Error(postsJson.error.message || JSON.stringify(postsJson.error));
+    // Pivot per-metric arrays into daily rows keyed by date
+    const dailyMap = {};
+    for (const metric of insJson.data || []) {
+      for (const point of metric.values || []) {
+        const date = point.end_time.split("T")[0];
+        if (!dailyMap[date]) dailyMap[date] = { date };
+        dailyMap[date][metric.name] = point.value;
+      }
+    }
+    const insights = Object.values(dailyMap).sort((a, b) => a.date.localeCompare(b.date));
+    // Build summary — page_fans is a gauge (last value), others are sums
+    const summary = insights.reduce((acc, row) => {
+      if (row.page_fans !== undefined) acc.page_fans = row.page_fans;
+      acc.page_fan_adds            += (row.page_fan_adds            || 0);
+      acc.page_impressions_organic += (row.page_impressions_organic || 0);
+      acc.page_post_engagements    += (row.page_post_engagements    || 0);
+      return acc;
+    }, { page_fans: 0, page_fan_adds: 0, page_impressions_organic: 0, page_post_engagements: 0 });
+    // Normalize posts with flattened insight values
+    const posts = (postsJson.data || []).map(post => {
+      const pi = post.insights?.data || [];
+      const getVal = name => pi.find(m => m.name === name)?.values?.[0]?.value || 0;
+      return {
+        id:                 post.id,
+        message:            post.message || "",
+        created_time:       post.created_time,
+        full_picture:       post.full_picture || null,
+        permalink_url:      post.permalink_url,
+        post_impressions:   getVal("post_impressions"),
+        post_reach:         getVal("post_reach"),
+        post_engaged_users: getVal("post_engaged_users"),
+      };
+    });
+    res.json({ insights, summary, posts });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Organic: Instagram ────────────────────────────────────
+
+app.get("/api/dashboards/:id/organic/instagram", authMiddleware, async (req, res) => {
+  const dashId = parseInt(req.params.id);
+  if (!await checkDashboardAccess(req, res, dashId)) return;
+  const { data: dash } = await supabase.from("dashboards").select("act_id, page_token").eq("id", dashId).single();
+  if (!dash) return res.status(404).json({ error: "Dashboard not found" });
+  if (!dash.page_token) return res.status(400).json({ error: "No page_token configured" });
+  const pageId = dash.act_id;
+  const token  = dash.page_token;
+  const { since, until } = req.query;
+  try {
+    // Step 1: Resolve linked Instagram Business account
+    const igLookupRes  = await fetch(`${META_BASE}/${pageId}?fields=instagram_business_account&access_token=${token}`);
+    const igLookupJson = await igLookupRes.json();
+    if (igLookupJson.error) throw new Error(igLookupJson.error.message || JSON.stringify(igLookupJson.error));
+    if (!igLookupJson.instagram_business_account?.id) {
+      return res.json({ error: "not_connected" });
+    }
+    const igId = igLookupJson.instagram_business_account.id;
+    const timeRange = `since=${since}&until=${until}`;
+    // Step 2: Fetch IG insights and media in parallel
+    const igInsightsUrl = `${META_BASE}/${igId}/insights?metric=impressions,reach,profile_views&period=day&${timeRange}&access_token=${token}`;
+    const igMediaUrl    = `${META_BASE}/${igId}/media?fields=id,caption,media_type,timestamp,like_count,comments_count,insights.metric(impressions,reach,engagement)&${timeRange}&limit=50&access_token=${token}`;
+    const [insRes, mediaRes] = await Promise.all([fetch(igInsightsUrl), fetch(igMediaUrl)]);
+    const [insJson, mediaJson] = await Promise.all([insRes.json(), mediaRes.json()]);
+    if (insJson.error)   throw new Error(insJson.error.message   || JSON.stringify(insJson.error));
+    if (mediaJson.error) throw new Error(mediaJson.error.message || JSON.stringify(mediaJson.error));
+    // Pivot insights into daily rows
+    const dailyMap = {};
+    for (const metric of insJson.data || []) {
+      for (const point of metric.values || []) {
+        const date = point.end_time.split("T")[0];
+        if (!dailyMap[date]) dailyMap[date] = { date };
+        dailyMap[date][metric.name] = point.value;
+      }
+    }
+    const insights = Object.values(dailyMap).sort((a, b) => a.date.localeCompare(b.date));
+    const summary = insights.reduce((acc, row) => {
+      acc.impressions   += (row.impressions   || 0);
+      acc.reach         += (row.reach         || 0);
+      acc.profile_views += (row.profile_views || 0);
+      return acc;
+    }, { impressions: 0, reach: 0, profile_views: 0 });
+    const media = (mediaJson.data || []).map(post => {
+      const pi = post.insights?.data || [];
+      const getVal = name => pi.find(m => m.name === name)?.values?.[0]?.value || 0;
+      return {
+        id:             post.id,
+        caption:        post.caption || "",
+        media_type:     post.media_type,
+        timestamp:      post.timestamp,
+        like_count:     post.like_count     || 0,
+        comments_count: post.comments_count || 0,
+        ig_impressions: getVal("impressions"),
+        ig_reach:       getVal("reach"),
+        ig_engagement:  getVal("engagement"),
+      };
+    });
+    res.json({ insights, summary, media });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

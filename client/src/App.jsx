@@ -4,6 +4,7 @@ import Login from "./Login";
 import Admin from "./Admin";
 import Dashboard from "./Dashboard";
 import GoogleDashboard from "./GoogleDashboard";
+import OrganicDashboard from "./OrganicDashboard";
 import ResetPassword from "./ResetPassword";
 import API from "./config";
 
@@ -45,6 +46,9 @@ export default function App() {
     const type = activeDash?.type;
     if (type === "google") {
       return <GoogleDashboard {...props} myDashboards={myDashboards} activeDash={activeDash} setActiveDash={setActiveDash} />;
+    }
+    if (type === "organic") {
+      return <OrganicDashboard {...props} myDashboards={myDashboards} activeDash={activeDash} setActiveDash={setActiveDash} />;
     }
     return <Dashboard {...props} myDashboards={myDashboards} activeDash={activeDash} setActiveDash={setActiveDash} />;
   };
