@@ -40,10 +40,15 @@ const ALL_FB_METRICS = [
   { key: "page_engaged_users",       label: "Engaged Users",   color: "#f59e0b" },
 ];
 
-const IG_METRICS = [
-  { key: "impressions",   label: "Impressions",   color: "#e1306c" },
-  { key: "reach",         label: "Reach",         color: "#f56040" },
-  { key: "profile_views", label: "Profile Views", color: "#fcaf45" },
+// IG metric candidates — backend probes each individually, returns igAvailableMetrics
+const ALL_IG_METRICS = [
+  { key: "views",               label: "Views",            color: "#e1306c" },
+  { key: "reach",               label: "Reach",            color: "#f56040" },
+  { key: "profile_views",       label: "Profile Views",    color: "#fcaf45" },
+  { key: "accounts_engaged",    label: "Accounts Engaged", color: "#c13584" },
+  { key: "total_interactions",  label: "Interactions",     color: "#833ab4" },
+  { key: "follower_count",      label: "New Followers",    color: "#10b981" },
+  { key: "website_clicks",      label: "Website Clicks",   color: "#3b82f6" },
 ];
 
 const typeBadge = {
@@ -301,12 +306,7 @@ function OverviewTab({ fbData, igData }) {
           ⚠️ Insights unavailable: <strong>{fbData.insightsError}</strong>
         </div>
       )}
-      {/* Condensed partial-failure notice */}
-      {!fbData.insightsError && errCount > 0 && (
-        <div style={{ background: "#1a1a2e", border: "1px solid #2a2a3e", borderRadius: 8, padding: "8px 12px", marginBottom: 16, fontSize: 11, color: "#444" }}>
-          ℹ️ {errCount} legacy metric{errCount > 1 ? "s" : ""} unavailable for this page type (New Pages Experience)
-        </div>
-      )}
+      {/* Legacy metric notice removed — NPE incompatibility is expected and non-actionable */}
 
       {/* ── Page insight KPI cards ── */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px,1fr))", gap: 10, marginBottom: showNetFollowers ? 10 : 20 }}>
@@ -379,44 +379,51 @@ function OverviewTab({ fbData, igData }) {
       </div>
 
       {/* ── Instagram Section ── */}
-      {igData && (<>
-        <p style={{ color: "#555", fontSize: 11, fontWeight: 700, letterSpacing: ".08em", margin: "20px 0 12px" }}>INSTAGRAM</p>
-
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px,1fr))", gap: 10, marginBottom: 20 }}>
-          {IG_METRICS.map(m => {
-            const active = activeIgMetric === m.key;
-            return (
-              <div key={m.key} onClick={() => setActiveIgMetric(m.key)} style={{
-                ...S.card, padding: "12px 14px", cursor: "pointer",
-                border: `1px solid ${active ? m.color : "#2a2a3e"}`,
-                background: active ? m.color + "18" : "#1e1e2e",
-                boxShadow: active ? `0 0 0 1px ${m.color}55` : "none", transition: "all .15s",
-              }}>
-                <p style={{ margin: "0 0 4px", fontSize: 10, color: active ? m.color : "#666", fontWeight: 600, letterSpacing: ".04em" }}>{m.label.toUpperCase()}</p>
-                <p style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>{fmtNumber(igSummary[m.key] || 0)}</p>
-              </div>
-            );
-          })}
-        </div>
-
-        <div style={{ ...S.card, padding: 16, marginBottom: 20 }}>
-          <p style={{ margin: "0 0 14px", fontWeight: 700, fontSize: 14 }}>
-            {activeIgMeta.label} <span style={{ color: "#555", fontWeight: 400, fontSize: 12 }}>— daily</span>
-          </p>
-          <ResponsiveContainer width="100%" height={200}>
-            <LineChart data={igData.insights || []}>
-              <CartesianGrid stroke="#1a1a2e" />
-              <XAxis dataKey="date" tick={{ fill: "#555", fontSize: 9 }} />
-              <YAxis tick={{ fill: "#555", fontSize: 9 }} width={55} tickFormatter={v => fmtNumber(v)} />
-              <Tooltip
-                contentStyle={{ background: "#13131f", border: `1px solid ${activeIgMeta.color}`, borderRadius: 8, fontSize: 12 }}
-                formatter={v => [fmtNumber(v), activeIgMeta.label]}
-              />
-              <Line type="monotone" dataKey={activeIgMetric} stroke={activeIgMeta.color} strokeWidth={2.5} dot={{ r: 3, fill: activeIgMeta.color }} />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-      </>)}
+      {igData && (() => {
+        const igAvail   = igData.igAvailableMetrics || [];
+        const igChartable = ALL_IG_METRICS.filter(m => igAvail.includes(m.key));
+        const defIgMetric = igChartable[0]?.key || activeIgMetric;
+        const igMeta    = ALL_IG_METRICS.find(m => m.key === activeIgMetric) || igChartable[0];
+        const igKpi     = ALL_IG_METRICS.filter(m => igAvail.includes(m.key));
+        return (<>
+          <p style={{ color: "#555", fontSize: 11, fontWeight: 700, letterSpacing: ".08em", margin: "20px 0 12px" }}>INSTAGRAM</p>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px,1fr))", gap: 10, marginBottom: 20 }}>
+            {igKpi.map(m => {
+              const active = activeIgMetric === m.key;
+              return (
+                <div key={m.key} onClick={() => setActiveIgMetric(m.key)} style={{
+                  ...S.card, padding: "12px 14px", cursor: "pointer",
+                  border: `1px solid ${active ? m.color : "#2a2a3e"}`,
+                  background: active ? m.color + "18" : "#1e1e2e",
+                  boxShadow: active ? `0 0 0 1px ${m.color}55` : "none", transition: "all .15s",
+                }}>
+                  <p style={{ margin: "0 0 4px", fontSize: 10, color: active ? m.color : "#666", fontWeight: 600, letterSpacing: ".04em" }}>{m.label.toUpperCase()}</p>
+                  <p style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>{fmtNumber(igSummary[m.key] || 0)}</p>
+                </div>
+              );
+            })}
+          </div>
+          {igChartable.length > 0 && igMeta && (
+            <div style={{ ...S.card, padding: 16, marginBottom: 20 }}>
+              <p style={{ margin: "0 0 14px", fontWeight: 700, fontSize: 14 }}>
+                {igMeta.label} <span style={{ color: "#555", fontWeight: 400, fontSize: 12 }}>— daily</span>
+              </p>
+              <ResponsiveContainer width="100%" height={200}>
+                <LineChart data={igData.insights || []}>
+                  <CartesianGrid stroke="#1a1a2e" />
+                  <XAxis dataKey="date" tick={{ fill: "#555", fontSize: 9 }} />
+                  <YAxis tick={{ fill: "#555", fontSize: 9 }} width={55} tickFormatter={v => fmtNumber(v)} />
+                  <Tooltip
+                    contentStyle={{ background: "#13131f", border: `1px solid ${igMeta.color}`, borderRadius: 8, fontSize: 12 }}
+                    formatter={v => [fmtNumber(v), igMeta.label]}
+                  />
+                  <Line type="monotone" dataKey={activeIgMetric} stroke={igMeta.color} strokeWidth={2.5} dot={{ r: 3, fill: igMeta.color }} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </>);
+      })()}
     </div>
   );
 }
@@ -491,8 +498,8 @@ function PostsTab({ posts }) {
 // ── Instagram Tab ─────────────────────────────────────────
 
 function InstagramTab({ igData, igError }) {
-  const [activeIgMetric, setActiveIgMetric] = useState("impressions");
-  const [sortBy, setSortBy]   = useState("ig_impressions");
+  const [activeIgMetric, setActiveIgMetric] = useState(null);
+  const [sortBy, setSortBy]   = useState("like_count");
   const [sortDir, setSortDir] = useState("desc");
 
   if (igError === "not_connected") {
@@ -511,7 +518,13 @@ function InstagramTab({ igData, igError }) {
 
   if (!igData) return null;
 
-  const activeIgMeta = IG_METRICS.find(m => m.key === activeIgMetric) || IG_METRICS[0];
+  // Filter to only metrics the API actually returned data for
+  const available   = igData.igAvailableMetrics || [];
+  const igMetrics   = ALL_IG_METRICS.filter(m => available.includes(m.key));
+  const currentKey  = (activeIgMetric && available.includes(activeIgMetric))
+    ? activeIgMetric
+    : (igMetrics[0]?.key || null);
+  const activeIgMeta = igMetrics.find(m => m.key === currentKey) || igMetrics[0];
   const igSummary    = igData.summary || {};
 
   const toggleSort = key => {
@@ -531,44 +544,52 @@ function InstagramTab({ igData, igError }) {
 
   return (
     <div>
-      {/* KPI cards */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px,1fr))", gap: 10, marginBottom: 20 }}>
-        {IG_METRICS.map(m => {
-          const active = activeIgMetric === m.key;
-          return (
-            <div key={m.key} onClick={() => setActiveIgMetric(m.key)} style={{
-              ...S.card, padding: "12px 14px", cursor: "pointer",
-              border: `1px solid ${active ? m.color : "#2a2a3e"}`,
-              background: active ? m.color + "18" : "#1e1e2e",
-              boxShadow: active ? `0 0 0 1px ${m.color}55` : "none", transition: "all .15s",
-            }}>
-              <p style={{ margin: "0 0 4px", fontSize: 10, color: active ? m.color : "#666", fontWeight: 600, letterSpacing: ".04em" }}>{m.label.toUpperCase()}</p>
-              <p style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>{fmtNumber(igSummary[m.key] || 0)}</p>
-            </div>
-          );
-        })}
-      </div>
+      {/* KPI cards — only show metrics that returned data */}
+      {igMetrics.length > 0 ? (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px,1fr))", gap: 10, marginBottom: 20 }}>
+          {igMetrics.map(m => {
+            const active = currentKey === m.key;
+            return (
+              <div key={m.key} onClick={() => setActiveIgMetric(m.key)} style={{
+                ...S.card, padding: "12px 14px", cursor: "pointer",
+                border: `1px solid ${active ? m.color : "#2a2a3e"}`,
+                background: active ? m.color + "18" : "#1e1e2e",
+                boxShadow: active ? `0 0 0 1px ${m.color}55` : "none", transition: "all .15s",
+              }}>
+                <p style={{ margin: "0 0 4px", fontSize: 10, color: active ? m.color : "#666", fontWeight: 600, letterSpacing: ".04em" }}>{m.label.toUpperCase()}</p>
+                <p style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>{fmtNumber(igSummary[m.key] || 0)}</p>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div style={{ ...S.card, padding: 16, marginBottom: 20, color: "#666", fontSize: 13 }}>
+          ℹ️ No Instagram insights available for the selected date range.
+        </div>
+      )}
 
-      {/* Trend chart */}
-      <div style={{ ...S.card, padding: 16, marginBottom: 20 }}>
-        <p style={{ margin: "0 0 14px", fontWeight: 700, fontSize: 14 }}>
-          {activeIgMeta.label} <span style={{ color: "#555", fontWeight: 400, fontSize: 12 }}>— daily</span>
-        </p>
-        <ResponsiveContainer width="100%" height={200}>
-          <LineChart data={igData.insights || []}>
-            <CartesianGrid stroke="#1a1a2e" />
-            <XAxis dataKey="date" tick={{ fill: "#555", fontSize: 9 }} />
-            <YAxis tick={{ fill: "#555", fontSize: 9 }} width={55} tickFormatter={v => fmtNumber(v)} />
-            <Tooltip
-              contentStyle={{ background: "#13131f", border: `1px solid ${activeIgMeta.color}`, borderRadius: 8, fontSize: 12 }}
-              formatter={v => [fmtNumber(v), activeIgMeta.label]}
-            />
-            <Line type="monotone" dataKey={activeIgMetric} stroke={activeIgMeta.color} strokeWidth={2.5} dot={{ r: 3, fill: activeIgMeta.color }} />
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
+      {/* Trend chart — only if we have a metric to show */}
+      {activeIgMeta && (
+        <div style={{ ...S.card, padding: 16, marginBottom: 20 }}>
+          <p style={{ margin: "0 0 14px", fontWeight: 700, fontSize: 14 }}>
+            {activeIgMeta.label} <span style={{ color: "#555", fontWeight: 400, fontSize: 12 }}>— daily</span>
+          </p>
+          <ResponsiveContainer width="100%" height={200}>
+            <LineChart data={igData.insights || []}>
+              <CartesianGrid stroke="#1a1a2e" />
+              <XAxis dataKey="date" tick={{ fill: "#555", fontSize: 9 }} />
+              <YAxis tick={{ fill: "#555", fontSize: 9 }} width={55} tickFormatter={v => fmtNumber(v)} />
+              <Tooltip
+                contentStyle={{ background: "#13131f", border: `1px solid ${activeIgMeta.color}`, borderRadius: 8, fontSize: 12 }}
+                formatter={v => [fmtNumber(v), activeIgMeta.label]}
+              />
+              <Line type="monotone" dataKey={currentKey} stroke={activeIgMeta.color} strokeWidth={2.5} dot={{ r: 3, fill: activeIgMeta.color }} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      )}
 
-      {/* Top posts table */}
+      {/* Posts & Reels table */}
       <p style={{ fontWeight: 700, fontSize: 14, margin: "0 0 12px" }}>Posts & Reels</p>
       <div style={{ ...S.card, overflow: "hidden" }}>
         <div style={{ overflowX: "auto" }}>
@@ -580,24 +601,27 @@ function InstagramTab({ igData, igError }) {
                 <th style={{ ...S.th, minWidth: 80 }}>Date</th>
                 <SortTh k="like_count"     label="Likes" />
                 <SortTh k="comments_count" label="Comments" />
-                <SortTh k="ig_impressions" label="Impressions" />
-                <SortTh k="ig_reach"       label="Reach" />
               </tr>
             </thead>
             <tbody>
               {sortedMedia.length === 0
-                ? <tr><td colSpan={7} style={{ ...S.th, textAlign: "center", padding: 20 }}>No posts in this period</td></tr>
+                ? <tr><td colSpan={5} style={{ ...S.th, textAlign: "center", padding: 20 }}>No posts in this period</td></tr>
                 : sortedMedia.slice(0, 50).map((post, i) => (
                   <tr key={post.id} style={{ borderTop: "1px solid #1a1a2e", background: i % 2 ? "#ffffff04" : "transparent" }}>
-                    <td style={{ ...S.td, maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", color: "#ccc" }}>
-                      {post.caption?.slice(0, 60) || "(no caption)"}
+                    <td style={{ ...S.td, maxWidth: 240, color: "#ccc" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        {post.thumbnail_url && (
+                          <img src={post.thumbnail_url} style={{ width: 36, height: 36, objectFit: "cover", borderRadius: 4, flexShrink: 0 }} alt="" />
+                        )}
+                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>
+                          {post.caption?.slice(0, 60) || "(no caption)"}
+                        </span>
+                      </div>
                     </td>
                     <td style={{ ...S.td, color: "#888", fontSize: 11 }}>{post.media_type}</td>
                     <td style={{ ...S.td, color: "#888" }}>{new Date(post.timestamp).toLocaleDateString()}</td>
                     <td style={{ ...S.td, color: "#e1306c", fontWeight: 600 }}>{fmtNumber(post.like_count)}</td>
-                    <td style={S.td}>{fmtNumber(post.comments_count)}</td>
-                    <td style={{ ...S.td, color: "#3b82f6" }}>{fmtNumber(post.ig_impressions)}</td>
-                    <td style={S.td}>{fmtNumber(post.ig_reach)}</td>
+                    <td style={{ ...S.td, color: "#f59e0b" }}>{fmtNumber(post.comments_count)}</td>
                   </tr>
                 ))
               }

@@ -784,45 +784,66 @@ app.get("/api/dashboards/:id/organic/instagram", authMiddleware, async (req, res
     }
     const igId = igLookupJson.instagram_business_account.id;
     const timeRange = `since=${since}&until=${until}`;
-    // Step 2: Fetch IG insights and media using the Page Access Token
-    const igInsightsUrl = `${META_BASE}/${igId}/insights?metric=impressions,reach,profile_views&period=day&${timeRange}&access_token=${pageToken}`;
-    const igMediaUrl    = `${META_BASE}/${igId}/media?fields=id,caption,media_type,timestamp,like_count,comments_count,insights.metric(impressions,reach,engagement)&${timeRange}&limit=50&access_token=${pageToken}`;
-    const [insRes, mediaRes] = await Promise.all([fetch(igInsightsUrl), fetch(igMediaUrl)]);
-    const [insJson, mediaJson] = await Promise.all([insRes.json(), mediaRes.json()]);
-    if (insJson.error)   throw new Error(insJson.error.message   || JSON.stringify(insJson.error));
-    if (mediaJson.error) throw new Error(mediaJson.error.message || JSON.stringify(mediaJson.error));
-    // Pivot insights into daily rows
-    const dailyMap = {};
-    for (const metric of insJson.data || []) {
-      for (const point of metric.values || []) {
+    // Step 2: Probe each IG metric individually (same pattern as FB — keeps whatever works).
+    // NOTE: In IG API v17+, "impressions" was renamed to "views". Other new metrics added.
+    const IG_METRIC_CANDIDATES = [
+      "views",               // replaces "impressions" in v17+
+      "reach",               // unique accounts that saw content
+      "profile_views",       // profile page visits per day
+      "accounts_engaged",    // accounts that interacted with content
+      "total_interactions",  // likes + comments + shares + saves combined
+      "follower_count",      // daily follower change (not cumulative)
+      "website_clicks",      // link in bio clicks
+    ];
+    const igMetricResults = {};
+    const igMetricErrors  = {};
+    await Promise.all(IG_METRIC_CANDIDATES.map(async (metric) => {
+      try {
+        const url = `${META_BASE}/${igId}/insights?metric=${metric}&period=day&${timeRange}&access_token=${pageToken}`;
+        const r   = await fetch(url);
+        const j   = await r.json();
+        if (j.error) {
+          igMetricErrors[metric] = `(${j.error.code}) ${j.error.message}`;
+        } else {
+          const values = j.data?.[0]?.values || [];
+          if (values.length > 0) igMetricResults[metric] = values;
+        }
+      } catch (e) { igMetricErrors[metric] = e.message; }
+    }));
+
+    // Build daily insights map from successful metrics
+    const igDailyMap = {};
+    for (const [metric, values] of Object.entries(igMetricResults)) {
+      for (const point of values) {
         const date = point.end_time.split("T")[0];
-        if (!dailyMap[date]) dailyMap[date] = { date };
-        dailyMap[date][metric.name] = point.value;
+        if (!igDailyMap[date]) igDailyMap[date] = { date };
+        igDailyMap[date][metric] = point.value;
       }
     }
-    const insights = Object.values(dailyMap).sort((a, b) => a.date.localeCompare(b.date));
+    const insights           = Object.values(igDailyMap).sort((a, b) => a.date.localeCompare(b.date));
+    const igAvailableMetrics = Object.keys(igMetricResults);
     const summary = insights.reduce((acc, row) => {
-      acc.impressions   += (row.impressions   || 0);
-      acc.reach         += (row.reach         || 0);
-      acc.profile_views += (row.profile_views || 0);
+      for (const m of igAvailableMetrics) acc[m] = (acc[m] || 0) + (row[m] || 0);
       return acc;
-    }, { impressions: 0, reach: 0, profile_views: 0 });
-    const media = (mediaJson.data || []).map(post => {
-      const pi = post.insights?.data || [];
-      const getVal = name => pi.find(m => m.name === name)?.values?.[0]?.value || 0;
-      return {
-        id:             post.id,
-        caption:        post.caption || "",
-        media_type:     post.media_type,
-        timestamp:      post.timestamp,
-        like_count:     post.like_count     || 0,
-        comments_count: post.comments_count || 0,
-        ig_impressions: getVal("impressions"),
-        ig_reach:       getVal("reach"),
-        ig_engagement:  getVal("engagement"),
-      };
-    });
-    res.json({ insights, summary, media });
+    }, {});
+
+    // Step 3: Fetch IG media — reactions/saves/shares come from media fields (no insights call needed)
+    const igMediaUrl = `${META_BASE}/${igId}/media?fields=id,caption,media_type,timestamp,like_count,comments_count,thumbnail_url,permalink&${timeRange}&limit=50&access_token=${pageToken}`;
+    const mediaRes  = await fetch(igMediaUrl);
+    const mediaJson = await mediaRes.json();
+    // media errors are non-fatal
+    const media = (mediaJson.error ? [] : (mediaJson.data || [])).map(post => ({
+      id:             post.id,
+      caption:        post.caption        || "",
+      media_type:     post.media_type,
+      timestamp:      post.timestamp,
+      like_count:     post.like_count     || 0,
+      comments_count: post.comments_count || 0,
+      thumbnail_url:  post.thumbnail_url  || null,
+      permalink:      post.permalink      || null,
+    }));
+
+    res.json({ insights, summary, media, igAvailableMetrics, igMetricErrors });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
