@@ -624,62 +624,102 @@ app.get("/api/dashboards/:id/organic/facebook", authMiddleware, async (req, res)
   const { since, until } = req.query;
   try {
     const timeRange = `since=${since}&until=${until}`;
-    // Step 1: Exchange the System User token for a Page Access Token + fan_count in one call
+
+    // Step 1: Exchange the stored token for a Page Access Token + get fan_count
     const pageInfoRes  = await fetch(`${META_BASE}/${pageId}?fields=fan_count,access_token&access_token=${token}`);
     const pageInfoJson = await pageInfoRes.json();
     if (pageInfoJson.error) throw new Error(`[page-info] ${pageInfoJson.error.message || JSON.stringify(pageInfoJson.error)}`);
-
-    // Use the Page Access Token for all subsequent calls (falls back to original token if not returned)
     const pageToken = pageInfoJson.access_token || token;
+    const fanCount  = pageInfoJson.fan_count || 0;
 
-    const insightsUrl = `${META_BASE}/${pageId}/insights?metric=page_impressions,page_engaged_users&period=day&${timeRange}&access_token=${pageToken}`;
-    const postsUrl    = `${META_BASE}/${pageId}/posts?fields=id,message,created_time,full_picture,permalink_url&${timeRange}&limit=50&access_token=${pageToken}`;
-
-    // Fetch posts (insights fetched separately — non-fatal)
-    const postsRes  = await fetch(postsUrl);
+    // Step 2: Fetch posts (reliable endpoint)
+    const postsRes  = await fetch(`${META_BASE}/${pageId}/posts?fields=id,message,created_time,full_picture,permalink_url&${timeRange}&limit=50&access_token=${pageToken}`);
     const postsJson = await postsRes.json();
     if (postsJson.error) throw new Error(`[posts] ${postsJson.error.message || JSON.stringify(postsJson.error)}`);
 
-    // Insights — non-fatal: if Meta rejects the metrics, return empty data + the raw Meta error
-    let insights = [];
-    let insightsError = null;
-    let summary = { page_fans: pageInfoJson.fan_count || 0, page_fan_adds: 0, page_impressions: 0, page_engaged_users: 0 };
-    try {
-      const insRes  = await fetch(insightsUrl);
-      const insJson = await insRes.json();
-      if (insJson.error) {
-        insightsError = `Meta Insights error (code ${insJson.error.code}): ${insJson.error.message}`;
-      } else {
-        const dailyMap = {};
-        for (const metric of insJson.data || []) {
-          for (const point of metric.values || []) {
-            const date = point.end_time.split("T")[0];
-            if (!dailyMap[date]) dailyMap[date] = { date };
-            dailyMap[date][metric.name] = point.value;
-          }
+    // Step 3: Probe each page-level insight metric INDIVIDUALLY (in parallel).
+    // Many v1 metrics are deprecated for New Pages Experience pages in v17+.
+    // We try all candidates and keep whichever ones the API accepts.
+    const METRIC_CANDIDATES = [
+      "page_post_engagements",   // total engagements on page posts (NPE-compatible)
+      "page_views_total",        // total page views (NPE-compatible)
+      "page_fan_adds_unique",    // unique new followers per day (NPE-compatible)
+      "page_impressions",        // legacy — may work for classic pages
+      "page_engaged_users",      // legacy — may work for classic pages
+      "page_fans",               // cumulative fans over time
+    ];
+    const metricResults = {};  // metric → array of { end_time, value }
+    const metricErrors  = {};  // metric → error string
+    await Promise.all(METRIC_CANDIDATES.map(async (metric) => {
+      try {
+        const url = `${META_BASE}/${pageId}/insights?metric=${metric}&period=day&${timeRange}&access_token=${pageToken}`;
+        const r   = await fetch(url);
+        const j   = await r.json();
+        if (j.error) {
+          metricErrors[metric] = `(${j.error.code}) ${j.error.message}`;
+        } else if (j.data?.[0]) {
+          metricResults[metric] = j.data[0].values || [];
         }
-        insights = Object.values(dailyMap).sort((a, b) => a.date.localeCompare(b.date));
-        summary = insights.reduce((acc, row) => {
-          acc.page_impressions   += (row.page_impressions   || 0);
-          acc.page_engaged_users += (row.page_engaged_users || 0);
-          return acc;
-        }, { page_fans: pageInfoJson.fan_count || 0, page_fan_adds: 0, page_impressions: 0, page_engaged_users: 0 });
+      } catch (e) {
+        metricErrors[metric] = e.message;
       }
-    } catch (e) {
-      insightsError = e.message;
-    }
-    // Normalize posts (no inline insights for now — avoids metric errors)
-    const posts = (postsJson.data || []).map(post => ({
-      id:                 post.id,
-      message:            post.message || "",
-      created_time:       post.created_time,
-      full_picture:       post.full_picture || null,
-      permalink_url:      post.permalink_url,
-      post_impressions:   0,
-      post_reach:         0,
-      post_engaged_users: 0,
     }));
-    res.json({ insights, summary, posts, insightsError });
+
+    // Build a daily map from whichever metrics succeeded
+    const dailyMap = {};
+    for (const [metric, values] of Object.entries(metricResults)) {
+      for (const point of values) {
+        const date = point.end_time.split("T")[0];
+        if (!dailyMap[date]) dailyMap[date] = { date };
+        dailyMap[date][metric] = point.value;
+      }
+    }
+    const insights         = Object.values(dailyMap).sort((a, b) => a.date.localeCompare(b.date));
+    const availableMetrics = Object.keys(metricResults);
+    const insightsError    = availableMetrics.length === 0
+      ? `No metrics available. Errors: ${JSON.stringify(metricErrors)}`
+      : null;
+
+    // Summary: fan_count from page node + sums of whatever insight metrics we got
+    const summary = insights.reduce((acc, row) => {
+      for (const m of availableMetrics) acc[m] = (acc[m] || 0) + (row[m] || 0);
+      return acc;
+    }, { page_fans: fanCount });
+
+    // Step 4: Fetch per-post insights for each post (non-fatal; different endpoint/metrics)
+    const rawPosts = postsJson.data || [];
+    const postInsightsMap = {};
+    if (rawPosts.length > 0) {
+      await Promise.all(rawPosts.map(async (post) => {
+        try {
+          const piUrl  = `${META_BASE}/${post.id}/insights?metric=post_impressions,post_impressions_unique,post_engaged_users&access_token=${pageToken}`;
+          const piRes  = await fetch(piUrl);
+          const piJson = await piRes.json();
+          if (!piJson.error) {
+            postInsightsMap[post.id] = {};
+            for (const m of piJson.data || []) {
+              postInsightsMap[post.id][m.name] = m.values?.[0]?.value || 0;
+            }
+          }
+        } catch (_) { /* non-fatal */ }
+      }));
+    }
+
+    const posts = rawPosts.map(post => {
+      const pi = postInsightsMap[post.id] || {};
+      return {
+        id:                 post.id,
+        message:            post.message || "",
+        created_time:       post.created_time,
+        full_picture:       post.full_picture || null,
+        permalink_url:      post.permalink_url,
+        post_impressions:   pi.post_impressions        || 0,
+        post_reach:         pi.post_impressions_unique || 0,
+        post_engaged_users: pi.post_engaged_users      || 0,
+      };
+    });
+
+    res.json({ insights, summary, posts, insightsError, availableMetrics, metricErrors });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

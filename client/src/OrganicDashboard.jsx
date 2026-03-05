@@ -20,11 +20,15 @@ const authHeaders = token => ({ Authorization: `Bearer ${token}` });
 
 const ORGANIC_COLOR = "#10b981";
 
-const FB_METRICS = [
-  { key: "page_fans",          label: "Page Fans",     color: "#6366f1" },
-  { key: "page_fan_adds",      label: "New Likes",     color: "#10b981" },
-  { key: "page_impressions",   label: "Impressions",   color: "#3b82f6" },
-  { key: "page_engaged_users", label: "Engaged Users", color: "#f59e0b" },
+// All possible Facebook Page metric names we may receive from the API.
+// The backend probes each one individually; we render whichever come back.
+const ALL_FB_METRICS = [
+  { key: "page_fans",             label: "Page Fans",        color: "#6366f1" },
+  { key: "page_post_engagements", label: "Engagements",      color: "#f59e0b" },
+  { key: "page_views_total",      label: "Page Views",       color: "#3b82f6" },
+  { key: "page_fan_adds_unique",  label: "New Followers",    color: "#10b981" },
+  { key: "page_impressions",      label: "Impressions",      color: "#3b82f6" },
+  { key: "page_engaged_users",    label: "Engaged Users",    color: "#f59e0b" },
 ];
 
 const IG_METRICS = [
@@ -254,13 +258,24 @@ export default function OrganicDashboard({ auth, onLogout, myDashboards, activeD
 // ── Overview Tab ─────────────────────────────────────────
 
 function OverviewTab({ fbData, igData }) {
-  const [activeFbMetric, setActiveFbMetric] = useState("page_fans");
+  // availableMetrics tells us which metrics actually returned data from the API
+  const availableMetrics = fbData.availableMetrics || [];
+  // Metrics that have daily chart data (intersect ALL_FB_METRICS with what came back)
+  const chartableMetrics = ALL_FB_METRICS.filter(m => availableMetrics.includes(m.key));
+  const defaultFbMetric  = chartableMetrics[0]?.key || "";
+
+  const [activeFbMetric, setActiveFbMetric] = useState(defaultFbMetric);
   const [activeIgMetric, setActiveIgMetric] = useState("impressions");
 
-  const activeFbMeta = FB_METRICS.find(m => m.key === activeFbMetric) || FB_METRICS[0];
+  const activeFbMeta = ALL_FB_METRICS.find(m => m.key === activeFbMetric) || chartableMetrics[0];
   const activeIgMeta = IG_METRICS.find(m => m.key === activeIgMetric) || IG_METRICS[0];
   const fbSummary    = fbData.summary || {};
   const igSummary    = igData?.summary || {};
+
+  // KPI cards: page_fans is always available (from fan_count); others only if in availableMetrics
+  const kpiMetrics = ALL_FB_METRICS.filter(m =>
+    m.key === "page_fans" || availableMetrics.includes(m.key)
+  );
 
   return (
     <div>
@@ -273,15 +288,19 @@ function OverviewTab({ fbData, igData }) {
       )}
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px,1fr))", gap: 10, marginBottom: 20 }}>
-        {FB_METRICS.map(m => {
-          const active = activeFbMetric === m.key;
+        {kpiMetrics.map(m => {
+          const isChartable = availableMetrics.includes(m.key);
+          const active      = activeFbMetric === m.key && isChartable;
           return (
-            <div key={m.key} onClick={() => setActiveFbMetric(m.key)} style={{
-              ...S.card, padding: "12px 14px", cursor: "pointer",
-              border: `1px solid ${active ? m.color : "#2a2a3e"}`,
-              background: active ? m.color + "18" : "#1e1e2e",
-              boxShadow: active ? `0 0 0 1px ${m.color}55` : "none", transition: "all .15s",
-            }}>
+            <div key={m.key}
+              onClick={() => isChartable && setActiveFbMetric(m.key)}
+              style={{
+                ...S.card, padding: "12px 14px",
+                cursor: isChartable ? "pointer" : "default",
+                border: `1px solid ${active ? m.color : "#2a2a3e"}`,
+                background: active ? m.color + "18" : "#1e1e2e",
+                boxShadow: active ? `0 0 0 1px ${m.color}55` : "none", transition: "all .15s",
+              }}>
               <p style={{ margin: "0 0 4px", fontSize: 10, color: active ? m.color : "#666", fontWeight: 600, letterSpacing: ".04em" }}>{m.label.toUpperCase()}</p>
               <p style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>{fmtNumber(fbSummary[m.key] || 0)}</p>
             </div>
@@ -289,23 +308,25 @@ function OverviewTab({ fbData, igData }) {
         })}
       </div>
 
-      <div style={{ ...S.card, padding: 16, marginBottom: 20 }}>
-        <p style={{ margin: "0 0 14px", fontWeight: 700, fontSize: 14 }}>
-          {activeFbMeta.label} <span style={{ color: "#555", fontWeight: 400, fontSize: 12 }}>— daily</span>
-        </p>
-        <ResponsiveContainer width="100%" height={200}>
-          <LineChart data={fbData.insights || []}>
-            <CartesianGrid stroke="#1a1a2e" />
-            <XAxis dataKey="date" tick={{ fill: "#555", fontSize: 9 }} />
-            <YAxis tick={{ fill: "#555", fontSize: 9 }} width={55} tickFormatter={v => fmtNumber(v)} />
-            <Tooltip
-              contentStyle={{ background: "#13131f", border: `1px solid ${activeFbMeta.color}`, borderRadius: 8, fontSize: 12 }}
-              formatter={v => [fmtNumber(v), activeFbMeta.label]}
-            />
-            <Line type="monotone" dataKey={activeFbMetric} stroke={activeFbMeta.color} strokeWidth={2.5} dot={{ r: 3, fill: activeFbMeta.color }} />
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
+      {chartableMetrics.length > 0 && activeFbMeta && (
+        <div style={{ ...S.card, padding: 16, marginBottom: 20 }}>
+          <p style={{ margin: "0 0 14px", fontWeight: 700, fontSize: 14 }}>
+            {activeFbMeta.label} <span style={{ color: "#555", fontWeight: 400, fontSize: 12 }}>— daily</span>
+          </p>
+          <ResponsiveContainer width="100%" height={200}>
+            <LineChart data={fbData.insights || []}>
+              <CartesianGrid stroke="#1a1a2e" />
+              <XAxis dataKey="date" tick={{ fill: "#555", fontSize: 9 }} />
+              <YAxis tick={{ fill: "#555", fontSize: 9 }} width={55} tickFormatter={v => fmtNumber(v)} />
+              <Tooltip
+                contentStyle={{ background: "#13131f", border: `1px solid ${activeFbMeta.color}`, borderRadius: 8, fontSize: 12 }}
+                formatter={v => [fmtNumber(v), activeFbMeta.label]}
+              />
+              <Line type="monotone" dataKey={activeFbMetric} stroke={activeFbMeta.color} strokeWidth={2.5} dot={{ r: 3, fill: activeFbMeta.color }} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      )}
 
       {/* ── Instagram Section ── */}
       {igData && (<>
