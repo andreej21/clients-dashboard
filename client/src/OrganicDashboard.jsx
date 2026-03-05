@@ -1,6 +1,6 @@
 import { useState, useCallback } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
+import { LineChart, Line, BarChart, Bar, Cell, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import API from "./config";
 import spLogo from "./assets/sp-logo.png";
 
@@ -40,7 +40,9 @@ const ALL_FB_METRICS = [
   { key: "page_engaged_users",       label: "Engaged Users",   color: "#f59e0b" },
 ];
 
-// IG metric candidates — backend probes each individually, returns igAvailableMetrics
+// IG metric candidates — backend probes each individually, returns igAvailableMetrics.
+// follows/unfollows/net_followers come from follows_and_unfollows (special format) and are
+// rendered as the dedicated Follower Growth bar chart, not as standard KPI cards.
 const ALL_IG_METRICS = [
   { key: "views",               label: "Views",            color: "#e1306c" },
   { key: "reach",               label: "Reach",            color: "#f56040" },
@@ -49,6 +51,8 @@ const ALL_IG_METRICS = [
   { key: "total_interactions",  label: "Interactions",     color: "#833ab4" },
   { key: "follower_count",      label: "New Followers",    color: "#10b981" },
   { key: "website_clicks",      label: "Website Clicks",   color: "#3b82f6" },
+  { key: "saves",               label: "Saves",            color: "#f59e0b" },
+  { key: "shares",              label: "Shares",           color: "#06b6d4" },
 ];
 
 const typeBadge = {
@@ -498,7 +502,7 @@ function PostsTab({ posts }) {
 
 function InstagramTab({ igData, igError }) {
   const [activeIgMetric, setActiveIgMetric] = useState(null);
-  const [sortBy, setSortBy]   = useState("like_count");
+  const [sortBy,  setSortBy]  = useState("like_count");
   const [sortDir, setSortDir] = useState("desc");
 
   if (igError === "not_connected") {
@@ -510,40 +514,71 @@ function InstagramTab({ igData, igError }) {
       </div>
     );
   }
+  if (igError) return <div style={{ color: "#f87171", padding: 20, fontSize: 13 }}>⚠️ {igError}</div>;
+  if (!igData)  return null;
 
-  if (igError) {
-    return <div style={{ color: "#f87171", padding: 20, fontSize: 13 }}>⚠️ {igError}</div>;
-  }
-
-  if (!igData) return null;
-
-  // Filter to only metrics the API actually returned data for
-  const available   = igData.igAvailableMetrics || [];
-  const igMetrics   = ALL_IG_METRICS.filter(m => available.includes(m.key));
-  const currentKey  = (activeIgMetric && available.includes(activeIgMetric))
-    ? activeIgMetric
-    : (igMetrics[0]?.key || null);
+  const available    = igData.igAvailableMetrics || [];
+  const igMetrics    = ALL_IG_METRICS.filter(m => available.includes(m.key));
+  const currentKey   = (activeIgMetric && available.includes(activeIgMetric)) ? activeIgMetric : (igMetrics[0]?.key || null);
   const activeIgMeta = igMetrics.find(m => m.key === currentKey) || igMetrics[0];
   const igSummary    = igData.summary || {};
+  const media        = igData.media   || [];
+  const demographics = igData.demographics;
+
+  // ── Follower growth (follows_and_unfollows) ──
+  const hasFollowData = available.includes("net_followers");
+
+  // ── Media type breakdown ──
+  const typeMap = {};
+  for (const p of media) {
+    const t = p.media_type || "OTHER";
+    if (!typeMap[t]) typeMap[t] = { count: 0, engagement: 0 };
+    typeMap[t].count++;
+    typeMap[t].engagement += (p.like_count || 0) + (p.comments_count || 0) + (p.saved || 0) + (p.shares || 0);
+  }
+  const TYPE_LABEL    = { IMAGE: "Image", VIDEO: "Video", CAROUSEL_ALBUM: "Carousel", REEL: "Reel" };
+  const mediaTypeData = Object.entries(typeMap)
+    .map(([t, d]) => ({ type: TYPE_LABEL[t] || t, count: d.count, avg_eng: d.count ? Math.round(d.engagement / d.count) : 0 }))
+    .sort((a, b) => b.count - a.count);
+
+  // ── Best day of week ──
+  const DAYS      = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const dayBuckets = Array.from({ length: 7 }, (_, i) => ({ day: DAYS[i], total: 0, count: 0 }));
+  for (const p of media) {
+    const d = new Date(p.timestamp).getDay();
+    dayBuckets[d].total += (p.like_count || 0) + (p.comments_count || 0) + (p.saved || 0) + (p.shares || 0);
+    dayBuckets[d].count++;
+  }
+  const dayData   = dayBuckets.map(d => ({ day: d.day, avg: d.count ? Math.round(d.total / d.count) : 0 }));
+  const maxDayAvg = Math.max(...dayData.map(d => d.avg), 0);
+
+  // ── Posts table helpers ──
+  const hasSaves = media.some(p => p.saved  > 0);
+  const hasPlays = media.some(p => p.plays  > 0);
+  const hasReach = media.some(p => p.reach  > 0);
+  const colCount  = 6 + (hasSaves ? 1 : 0) + (hasPlays ? 1 : 0) + (hasReach ? 1 : 0);
 
   const toggleSort = key => {
     if (sortBy === key) setSortDir(d => d === "desc" ? "asc" : "desc");
     else { setSortBy(key); setSortDir("desc"); }
   };
-
-  const sortedMedia = [...(igData.media || [])].sort((a, b) =>
+  const sortedMedia = [...media].sort((a, b) =>
     sortDir === "desc" ? (b[sortBy] || 0) - (a[sortBy] || 0) : (a[sortBy] || 0) - (b[sortBy] || 0)
   );
-
-  const SortTh = ({ k, label }) => (
-    <th onClick={() => toggleSort(k)} style={{ ...S.th, cursor: "pointer", userSelect: "none", color: sortBy === k ? "#fff" : "#555" }}>
+  const SortTh = ({ k, label, minWidth }) => (
+    <th onClick={() => toggleSort(k)} style={{ ...S.th, minWidth: minWidth || "auto", cursor: "pointer", userSelect: "none", color: sortBy === k ? "#fff" : "#555" }}>
       {label}{sortBy === k ? (sortDir === "desc" ? " ↓" : " ↑") : ""}
     </th>
   );
 
+  const GENDER_COLORS = { F: "#e1306c", M: "#4f8ef7", U: "#aaa" };
+  const GENDER_LABELS = { F: "Female",  M: "Male",    U: "Unknown" };
+  const demoGenderTotal = (demographics?.byGender || []).reduce((s, x) => s + x.value, 0);
+
   return (
     <div>
-      {/* KPI cards — only show metrics that returned data */}
+
+      {/* ── KPI Cards ── */}
       {igMetrics.length > 0 ? (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px,1fr))", gap: 10, marginBottom: 20 }}>
           {igMetrics.map(m => {
@@ -567,7 +602,7 @@ function InstagramTab({ igData, igError }) {
         </div>
       )}
 
-      {/* Trend chart — only if we have a metric to show */}
+      {/* ── Trend Chart ── */}
       {activeIgMeta && (
         <div style={{ ...S.card, padding: 16, marginBottom: 20 }}>
           <p style={{ margin: "0 0 14px", fontWeight: 700, fontSize: 14 }}>
@@ -588,41 +623,194 @@ function InstagramTab({ igData, igError }) {
         </div>
       )}
 
-      {/* Posts & Reels table */}
-      <p style={{ fontWeight: 700, fontSize: 14, margin: "0 0 12px" }}>Posts & Reels</p>
+      {/* ── Follower Growth Bar Chart ── */}
+      {hasFollowData && (
+        <div style={{ ...S.card, padding: 16, marginBottom: 20 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+            <p style={{ margin: 0, fontWeight: 700, fontSize: 14 }}>
+              Follower Growth <span style={{ color: "#555", fontWeight: 400, fontSize: 12 }}>— daily net change</span>
+            </p>
+            <div style={{ display: "flex", gap: 16, fontSize: 12 }}>
+              <span style={{ color: "#10b981" }}>▲ {fmtNumber(igSummary.follows || 0)} follows</span>
+              <span style={{ color: "#ef4444" }}>▼ {fmtNumber(igSummary.unfollows || 0)} unfollows</span>
+            </div>
+          </div>
+          <ResponsiveContainer width="100%" height={160}>
+            <BarChart data={igData.insights || []}>
+              <CartesianGrid stroke="#1a1a2e" />
+              <XAxis dataKey="date" tick={{ fill: "#555", fontSize: 9 }} />
+              <YAxis tick={{ fill: "#555", fontSize: 9 }} width={45} />
+              <Tooltip
+                contentStyle={{ background: "#13131f", border: "1px solid #2a2a3e", borderRadius: 8, fontSize: 12 }}
+                formatter={v => [v >= 0 ? `+${v}` : String(v), "Net followers"]}
+              />
+              <Bar dataKey="net_followers" radius={[3, 3, 0, 0]}>
+                {(igData.insights || []).map((entry, i) => (
+                  <Cell key={i} fill={(entry.net_followers || 0) >= 0 ? "#10b981" : "#ef4444"} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+
+      {/* ── Content Mix + Best Day to Post ── */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 20 }}>
+
+        {/* Content mix */}
+        {mediaTypeData.length > 0 && (
+          <div style={{ ...S.card, padding: 16 }}>
+            <p style={{ margin: "0 0 14px", fontWeight: 700, fontSize: 14 }}>Content Mix</p>
+            <ResponsiveContainer width="100%" height={160}>
+              <BarChart data={mediaTypeData} layout="vertical" margin={{ left: 0, right: 10 }}>
+                <CartesianGrid stroke="#1a1a2e" horizontal={false} />
+                <XAxis type="number" tick={{ fill: "#555", fontSize: 9 }} />
+                <YAxis type="category" dataKey="type" tick={{ fill: "#ccc", fontSize: 11 }} width={60} />
+                <Tooltip
+                  contentStyle={{ background: "#13131f", border: "1px solid #2a2a3e", borderRadius: 8, fontSize: 12 }}
+                  formatter={(v, name) => [v, name === "count" ? "Posts" : "Avg Engagement"]}
+                />
+                <Bar dataKey="count" fill="#c13584" radius={[0, 3, 3, 0]} name="count" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+
+        {/* Best day to post */}
+        <div style={{ ...S.card, padding: 16 }}>
+          <p style={{ margin: "0 0 14px", fontWeight: 700, fontSize: 14 }}>Best Day to Post</p>
+          {media.length === 0 ? (
+            <p style={{ color: "#555", fontSize: 12, textAlign: "center", marginTop: 40 }}>No posts in range</p>
+          ) : (
+            <ResponsiveContainer width="100%" height={160}>
+              <BarChart data={dayData}>
+                <CartesianGrid stroke="#1a1a2e" />
+                <XAxis dataKey="day" tick={{ fill: "#555", fontSize: 10 }} />
+                <YAxis tick={{ fill: "#555", fontSize: 9 }} width={40} tickFormatter={v => fmtNumber(v)} />
+                <Tooltip
+                  contentStyle={{ background: "#13131f", border: "1px solid #2a2a3e", borderRadius: 8, fontSize: 12 }}
+                  formatter={v => [fmtNumber(v), "Avg engagement"]}
+                />
+                <Bar dataKey="avg" radius={[3, 3, 0, 0]}>
+                  {dayData.map((entry, i) => (
+                    <Cell key={i} fill={entry.avg === maxDayAvg && maxDayAvg > 0 ? "#e1306c" : "#833ab4"} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+      </div>
+
+      {/* ── Audience Demographics ── */}
+      {demographics && (demographics.byAge?.length > 0 || demographics.byGender?.length > 0) && (
+        <div style={{ ...S.card, padding: 16, marginBottom: 20 }}>
+          <p style={{ margin: "0 0 16px", fontWeight: 700, fontSize: 14 }}>Audience Demographics</p>
+          <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 24 }}>
+
+            {/* Age breakdown */}
+            {demographics.byAge?.length > 0 && (
+              <div>
+                <p style={{ fontSize: 11, color: "#666", margin: "0 0 10px", fontWeight: 600, letterSpacing: ".06em" }}>AGE RANGE (reached)</p>
+                <ResponsiveContainer width="100%" height={200}>
+                  <BarChart data={demographics.byAge} layout="vertical" margin={{ left: 0, right: 10 }}>
+                    <CartesianGrid stroke="#1a1a2e" horizontal={false} />
+                    <XAxis type="number" tick={{ fill: "#555", fontSize: 9 }} tickFormatter={v => fmtNumber(v)} />
+                    <YAxis type="category" dataKey="age" tick={{ fill: "#ccc", fontSize: 11 }} width={48} />
+                    <Tooltip contentStyle={{ background: "#13131f", border: "1px solid #2a2a3e", borderRadius: 8, fontSize: 12 }} />
+                    <Bar dataKey="value" fill="#c13584" radius={[0, 3, 3, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+
+            {/* Gender breakdown */}
+            {demographics.byGender?.length > 0 && (
+              <div>
+                <p style={{ fontSize: 11, color: "#666", margin: "0 0 16px", fontWeight: 600, letterSpacing: ".06em" }}>GENDER</p>
+                <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                  {demographics.byGender.map(({ gender, value }) => {
+                    const pct   = demoGenderTotal ? Math.round(value / demoGenderTotal * 100) : 0;
+                    const color = GENDER_COLORS[gender] || "#aaa";
+                    return (
+                      <div key={gender}>
+                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#aaa", marginBottom: 5 }}>
+                          <span>{GENDER_LABELS[gender] || gender}</span>
+                          <span style={{ color, fontWeight: 700 }}>{pct}%</span>
+                        </div>
+                        <div style={{ background: "#13131f", borderRadius: 4, height: 7 }}>
+                          <div style={{ width: `${pct}%`, background: color, borderRadius: 4, height: "100%", transition: "width .3s" }} />
+                        </div>
+                        <p style={{ margin: "3px 0 0", fontSize: 10, color: "#555" }}>{fmtNumber(value)} accounts</p>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Posts & Reels Table ── */}
+      <p style={{ fontWeight: 700, fontSize: 14, margin: "0 0 12px" }}>
+        Posts & Reels <span style={{ color: "#555", fontWeight: 400, fontSize: 12 }}>({media.length})</span>
+      </p>
       <div style={{ ...S.card, overflow: "hidden" }}>
         <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr style={{ background: "#13131f" }}>
-                <th style={{ ...S.th, minWidth: 200 }}>Caption</th>
+                <th style={{ ...S.th, minWidth: 220 }}>Caption</th>
                 <th style={S.th}>Type</th>
                 <th style={{ ...S.th, minWidth: 80 }}>Date</th>
-                <SortTh k="like_count"     label="Likes" />
-                <SortTh k="comments_count" label="Comments" />
+                <SortTh k="like_count"     label="Likes"    minWidth={70} />
+                <SortTh k="comments_count" label="Comments" minWidth={85} />
+                {hasSaves && <SortTh k="saved" label="Saves" minWidth={70} />}
+                {hasPlays && <SortTh k="plays" label="Plays" minWidth={70} />}
+                {hasReach && <SortTh k="reach" label="Reach" minWidth={70} />}
+                <th style={S.th}>Link</th>
               </tr>
             </thead>
             <tbody>
               {sortedMedia.length === 0
-                ? <tr><td colSpan={5} style={{ ...S.th, textAlign: "center", padding: 20 }}>No posts in this period</td></tr>
-                : sortedMedia.slice(0, 50).map((post, i) => (
-                  <tr key={post.id} style={{ borderTop: "1px solid #1a1a2e", background: i % 2 ? "#ffffff04" : "transparent" }}>
-                    <td style={{ ...S.td, maxWidth: 240, color: "#ccc" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        {post.thumbnail_url && (
-                          <img src={post.thumbnail_url} style={{ width: 36, height: 36, objectFit: "cover", borderRadius: 4, flexShrink: 0 }} alt="" />
+                ? <tr><td colSpan={colCount} style={{ ...S.th, textAlign: "center", padding: 20 }}>No posts in this period</td></tr>
+                : sortedMedia.slice(0, 50).map((post, i) => {
+                  const engRate = post.reach > 0
+                    ? (((post.like_count || 0) + (post.comments_count || 0) + (post.saved || 0) + (post.shares || 0)) / post.reach * 100).toFixed(1)
+                    : null;
+                  return (
+                    <tr key={post.id} style={{ borderTop: "1px solid #1a1a2e", background: i % 2 ? "#ffffff04" : "transparent" }}>
+                      <td style={{ ...S.td, maxWidth: 260, color: "#ccc" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          {post.thumbnail_url && (
+                            <img src={post.thumbnail_url} style={{ width: 36, height: 36, objectFit: "cover", borderRadius: 4, flexShrink: 0 }} alt="" />
+                          )}
+                          <div style={{ overflow: "hidden" }}>
+                            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>
+                              {post.caption?.slice(0, 60) || "(no caption)"}
+                            </span>
+                            {engRate !== null && (
+                              <span style={{ fontSize: 10, color: "#555" }}>{engRate}% eng. rate</span>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+                      <td style={{ ...S.td, color: "#888", fontSize: 11 }}>{post.media_type}</td>
+                      <td style={{ ...S.td, color: "#888" }}>{new Date(post.timestamp).toLocaleDateString()}</td>
+                      <td style={{ ...S.td, color: "#e1306c", fontWeight: 600 }}>{fmtNumber(post.like_count)}</td>
+                      <td style={{ ...S.td, color: "#f59e0b" }}>{fmtNumber(post.comments_count)}</td>
+                      {hasSaves && <td style={{ ...S.td, color: "#fcaf45" }}>{fmtNumber(post.saved)}</td>}
+                      {hasPlays && <td style={{ ...S.td, color: "#3b82f6" }}>{fmtNumber(post.plays)}</td>}
+                      {hasReach && <td style={{ ...S.td, color: "#6366f1" }}>{fmtNumber(post.reach)}</td>}
+                      <td style={S.td}>
+                        {post.permalink && (
+                          <a href={post.permalink} target="_blank" rel="noopener noreferrer" style={{ color: "#c13584", fontSize: 12 }}>View ↗</a>
                         )}
-                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>
-                          {post.caption?.slice(0, 60) || "(no caption)"}
-                        </span>
-                      </div>
-                    </td>
-                    <td style={{ ...S.td, color: "#888", fontSize: 11 }}>{post.media_type}</td>
-                    <td style={{ ...S.td, color: "#888" }}>{new Date(post.timestamp).toLocaleDateString()}</td>
-                    <td style={{ ...S.td, color: "#e1306c", fontWeight: 600 }}>{fmtNumber(post.like_count)}</td>
-                    <td style={{ ...S.td, color: "#f59e0b" }}>{fmtNumber(post.comments_count)}</td>
-                  </tr>
-                ))
+                      </td>
+                    </tr>
+                  );
+                })
               }
             </tbody>
           </table>

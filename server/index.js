@@ -774,44 +774,57 @@ app.get("/api/dashboards/:id/organic/instagram", authMiddleware, async (req, res
   const token  = dash.page_token;
   const { since, until } = req.query;
   try {
-    // Step 1: Exchange System User token for Page Access Token + resolve Instagram account
+    // Step 1: Resolve IG business account
     const igLookupRes  = await fetch(`${META_BASE}/${pageId}?fields=access_token,instagram_business_account&access_token=${token}`);
     const igLookupJson = await igLookupRes.json();
-    const pageToken = igLookupJson.access_token || token; // use Page token for subsequent calls
+    const pageToken = igLookupJson.access_token || token;
     if (igLookupJson.error) throw new Error(igLookupJson.error.message || JSON.stringify(igLookupJson.error));
-    if (!igLookupJson.instagram_business_account?.id) {
-      return res.json({ error: "not_connected" });
-    }
-    const igId = igLookupJson.instagram_business_account.id;
+    if (!igLookupJson.instagram_business_account?.id) return res.json({ error: "not_connected" });
+    const igId      = igLookupJson.instagram_business_account.id;
     const timeRange = `since=${since}&until=${until}`;
-    // Step 2: Probe each IG metric individually (same pattern as FB — keeps whatever works).
-    // NOTE: In IG API v17+, "impressions" was renamed to "views". Other new metrics added.
+
+    // Step 2: Fire all requests concurrently
+    // 2a. Standard daily metrics — probe individually (v17+ renames + per-account availability)
     const IG_METRIC_CANDIDATES = [
-      "views",               // replaces "impressions" in v17+
-      "reach",               // unique accounts that saw content
-      "profile_views",       // profile page visits per day
-      "accounts_engaged",    // accounts that interacted with content
-      "total_interactions",  // likes + comments + shares + saves combined
-      "follower_count",      // daily follower change (not cumulative)
-      "website_clicks",      // link in bio clicks
+      "views",              // replaces "impressions" in v17+
+      "reach",
+      "profile_views",
+      "accounts_engaged",
+      "total_interactions", // likes + comments + shares + saves combined
+      "follower_count",     // daily follower change
+      "website_clicks",
+      "saves",
+      "shares",
     ];
     const igMetricResults = {};
     const igMetricErrors  = {};
-    await Promise.all(IG_METRIC_CANDIDATES.map(async (metric) => {
-      try {
-        const url = `${META_BASE}/${igId}/insights?metric=${metric}&period=day&${timeRange}&access_token=${pageToken}`;
-        const r   = await fetch(url);
-        const j   = await r.json();
-        if (j.error) {
-          igMetricErrors[metric] = `(${j.error.code}) ${j.error.message}`;
-        } else {
-          const values = j.data?.[0]?.values || [];
-          if (values.length > 0) igMetricResults[metric] = values;
-        }
-      } catch (e) { igMetricErrors[metric] = e.message; }
-    }));
 
-    // Build daily insights map from successful metrics
+    const [, followsJson, demoJson, mediaJson] = await Promise.all([
+      // Probe each standard metric individually
+      Promise.all(IG_METRIC_CANDIDATES.map(async (metric) => {
+        try {
+          const r = await fetch(`${META_BASE}/${igId}/insights?metric=${metric}&period=day&${timeRange}&access_token=${pageToken}`);
+          const j = await r.json();
+          if (j.error) igMetricErrors[metric] = `(${j.error.code}) ${j.error.message}`;
+          else { const vals = j.data?.[0]?.values || []; if (vals.length > 0) igMetricResults[metric] = vals; }
+        } catch (e) { igMetricErrors[metric] = e.message; }
+      })),
+
+      // follows_and_unfollows — value is an object {follows, unfollows}, not a plain number
+      fetch(`${META_BASE}/${igId}/insights?metric=follows_and_unfollows&period=day&${timeRange}&access_token=${pageToken}`)
+        .then(r => r.json()).catch(() => null),
+
+      // Audience demographics (lifetime period, not time-ranged)
+      fetch(`${META_BASE}/${igId}/insights?metric=reached_audience_demographics&period=lifetime&breakdown=age,gender&access_token=${pageToken}`)
+        .then(r => r.json()).catch(() => null),
+
+      // Media with inline per-post insights (saved, shares, plays, reach)
+      // Requires instagram_manage_insights — handled gracefully if not available
+      fetch(`${META_BASE}/${igId}/media?fields=id,caption,media_type,timestamp,like_count,comments_count,thumbnail_url,permalink,insights.metric(saved,shares,plays,reach)&limit=50&access_token=${pageToken}`)
+        .then(r => r.json()).catch(() => null),
+    ]);
+
+    // Build daily map from standard metrics
     const igDailyMap = {};
     for (const [metric, values] of Object.entries(igMetricResults)) {
       for (const point of values) {
@@ -820,30 +833,83 @@ app.get("/api/dashboards/:id/organic/instagram", authMiddleware, async (req, res
         igDailyMap[date][metric] = point.value;
       }
     }
+
+    // Process follows_and_unfollows (object-valued metric)
+    let followsAvailable = false;
+    if (followsJson && !followsJson.error && followsJson.data?.[0]?.values?.length > 0) {
+      followsAvailable = true;
+      for (const point of followsJson.data[0].values) {
+        const date = point.end_time.split("T")[0];
+        if (!igDailyMap[date]) igDailyMap[date] = { date };
+        const v = point.value || {};
+        igDailyMap[date].follows      = v.follows   || 0;
+        igDailyMap[date].unfollows    = v.unfollows || 0;
+        igDailyMap[date].net_followers = (v.follows || 0) - (v.unfollows || 0);
+      }
+    }
+
     const insights           = Object.values(igDailyMap).sort((a, b) => a.date.localeCompare(b.date));
-    const igAvailableMetrics = Object.keys(igMetricResults);
+    const igAvailableMetrics = [
+      ...Object.keys(igMetricResults),
+      ...(followsAvailable ? ["follows", "unfollows", "net_followers"] : []),
+    ];
     const summary = insights.reduce((acc, row) => {
       for (const m of igAvailableMetrics) acc[m] = (acc[m] || 0) + (row[m] || 0);
       return acc;
     }, {});
 
-    // Step 3: Fetch IG media — reactions/saves/shares come from media fields (no insights call needed)
-    const igMediaUrl = `${META_BASE}/${igId}/media?fields=id,caption,media_type,timestamp,like_count,comments_count,thumbnail_url,permalink&${timeRange}&limit=50&access_token=${pageToken}`;
-    const mediaRes  = await fetch(igMediaUrl);
-    const mediaJson = await mediaRes.json();
-    // media errors are non-fatal
-    const media = (mediaJson.error ? [] : (mediaJson.data || [])).map(post => ({
-      id:             post.id,
-      caption:        post.caption        || "",
-      media_type:     post.media_type,
-      timestamp:      post.timestamp,
-      like_count:     post.like_count     || 0,
-      comments_count: post.comments_count || 0,
-      thumbnail_url:  post.thumbnail_url  || null,
-      permalink:      post.permalink      || null,
-    }));
+    // Process audience demographics
+    // v22+ format: total_value.breakdowns[0].results with dimension_values [age, gender]
+    let demographics = null;
+    if (demoJson && !demoJson.error) {
+      try {
+        const demoData   = demoJson.data?.[0];
+        const resultsArr =
+          demoData?.total_value?.breakdowns?.[0]?.results ||  // v22+
+          demoData?.breakdown?.results;                        // older
+        if (resultsArr?.length > 0) {
+          const byAge    = {};
+          const byGender = {};
+          for (const r of resultsArr) {
+            const [age, gender] = r.dimension_values || [];
+            if (age)    byAge[age]       = (byAge[age]       || 0) + r.value;
+            if (gender) byGender[gender] = (byGender[gender] || 0) + r.value;
+          }
+          demographics = {
+            byAge:    Object.entries(byAge)
+                        .map(([age, value]) => ({ age, value }))
+                        .sort((a, b) => a.age.localeCompare(b.age)),
+            byGender: Object.entries(byGender)
+                        .filter(([, v]) => v > 0)
+                        .map(([gender, value]) => ({ gender, value })),
+          };
+        }
+      } catch (_) { /* non-fatal */ }
+    }
 
-    res.json({ insights, summary, media, igAvailableMetrics, igMetricErrors });
+    // Process media — inline per-post insights may be absent if token lacks instagram_manage_insights
+    const media = (!mediaJson || mediaJson.error ? [] : (mediaJson.data || [])).map(post => {
+      const insightMap = {};
+      for (const ins of (post.insights?.data || [])) {
+        insightMap[ins.name] = ins.values?.[0]?.value ?? ins.value ?? 0;
+      }
+      return {
+        id:             post.id,
+        caption:        post.caption        || "",
+        media_type:     post.media_type,
+        timestamp:      post.timestamp,
+        like_count:     post.like_count     || 0,
+        comments_count: post.comments_count || 0,
+        thumbnail_url:  post.thumbnail_url  || null,
+        permalink:      post.permalink      || null,
+        saved:          insightMap.saved    || 0,
+        shares:         insightMap.shares   || 0,
+        plays:          insightMap.plays    || 0,
+        reach:          insightMap.reach    || 0,
+      };
+    });
+
+    res.json({ insights, summary, media, igAvailableMetrics, igMetricErrors, demographics });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
