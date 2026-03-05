@@ -10,7 +10,7 @@ const toYMD      = d => d.toISOString().split("T")[0];
 
 const S = {
   card: { background: "#1e1e2e", border: "1px solid #2a2a3e", borderRadius: 12 },
-  inp:  { background: "#13131f", border: "1px solid #2a2a3e", borderRadius: 8, padding: "9px 12px", color: "#fff", fontSize: 13, outline: "none" },
+  inp:  { background: "#13131f", color: "#e5e5e5", border: "1px solid #2a2a3e", borderRadius: 8, padding: "9px 12px", color: "#fff", fontSize: 13, outline: "none" },
   th:   { padding: "9px 14px", textAlign: "left", color: "#555", fontWeight: 600, whiteSpace: "nowrap", fontSize: 12 },
   td:   { padding: "8px 14px", whiteSpace: "nowrap", fontSize: 13 },
   btn:  (color = "#2a2a3e", textColor = "#aaa") => ({ background: color, border: "none", borderRadius: 7, padding: "9px 14px", color: textColor, cursor: "pointer", fontSize: 12, fontWeight: 600 }),
@@ -353,7 +353,7 @@ function OverviewTab({ fbData, igData }) {
               <XAxis dataKey="date" tick={{ fill: "#555", fontSize: 9 }} />
               <YAxis tick={{ fill: "#555", fontSize: 9 }} width={55} tickFormatter={v => fmtNumber(v)} />
               <Tooltip
-                contentStyle={{ background: "#13131f", border: `1px solid ${activeFbMeta.color}`, borderRadius: 8, fontSize: 12 }}
+                contentStyle={{ background: "#13131f", color: "#e5e5e5", border: `1px solid ${activeFbMeta.color}`, borderRadius: 8, fontSize: 12 }}
                 formatter={v => [fmtNumber(v), activeFbMeta.label]}
               />
               <Line type="monotone" dataKey={activeFbMetric} stroke={activeFbMeta.color} strokeWidth={2.5} dot={{ r: 3, fill: activeFbMeta.color }} />
@@ -417,7 +417,7 @@ function OverviewTab({ fbData, igData }) {
                   <XAxis dataKey="date" tick={{ fill: "#555", fontSize: 9 }} />
                   <YAxis tick={{ fill: "#555", fontSize: 9 }} width={55} tickFormatter={v => fmtNumber(v)} />
                   <Tooltip
-                    contentStyle={{ background: "#13131f", border: `1px solid ${igMeta.color}`, borderRadius: 8, fontSize: 12 }}
+                    contentStyle={{ background: "#13131f", color: "#e5e5e5", border: `1px solid ${igMeta.color}`, borderRadius: 8, fontSize: 12 }}
                     formatter={v => [fmtNumber(v), igMeta.label]}
                   />
                   <Line type="monotone" dataKey={currentIgKey} stroke={igMeta.color} strokeWidth={2.5} dot={{ r: 3, fill: igMeta.color }} />
@@ -434,7 +434,7 @@ function OverviewTab({ fbData, igData }) {
 // ── FB Posts Tab ─────────────────────────────────────────
 
 function PostsTab({ posts }) {
-  const [sortBy, setSortBy]   = useState("post_impressions");
+  const [sortBy, setSortBy]   = useState("reactions");
   const [sortDir, setSortDir] = useState("desc");
 
   const toggleSort = key => {
@@ -452,47 +452,118 @@ function PostsTab({ posts }) {
     </th>
   );
 
+  // ── Best day of week ──
+  const DAYS      = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const dayBuckets = Array.from({ length: 7 }, (_, i) => ({ day: DAYS[i], total: 0, count: 0 }));
+  for (const p of posts) {
+    const d = new Date(p.created_time).getDay();
+    dayBuckets[d].total += (p.reactions || 0) + (p.comments || 0) + (p.shares || 0);
+    dayBuckets[d].count++;
+  }
+  const dayData   = dayBuckets.map(d => ({ day: d.day, avg: d.count ? Math.round(d.total / d.count) : 0 }));
+  const maxDayAvg = Math.max(...dayData.map(d => d.avg), 0);
+
+  // ── Content mix (image vs text-only) ──
+  const withImg  = posts.filter(p => p.full_picture).length;
+  const textOnly = posts.length - withImg;
+  const mixData  = [
+    { type: "With Image", count: withImg,  fill: "#6366f1" },
+    { type: "Text Only",  count: textOnly, fill: "#2a2a3e" },
+  ].filter(d => d.count > 0);
+
   return (
-    <div style={{ ...S.card, overflow: "hidden" }}>
-      <div style={{ overflowX: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
-          <thead>
-            <tr style={{ background: "#13131f" }}>
-              <th style={{ ...S.th, minWidth: 220 }}>Post</th>
-              <th style={{ ...S.th, minWidth: 90 }}>Date</th>
-              <SortTh k="reactions" label="Reactions" minWidth={90} />
-              <SortTh k="comments"  label="Comments"  minWidth={90} />
-              <SortTh k="shares"    label="Shares"    minWidth={70} />
-              <th style={S.th}>Link</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sorted.length === 0
-              ? <tr><td colSpan={6} style={{ ...S.th, textAlign: "center", padding: 20 }}>No posts in this period</td></tr>
-              : sorted.map((post, i) => (
-                <tr key={post.id} style={{ borderTop: "1px solid #1a1a2e", background: i % 2 ? "#ffffff04" : "transparent" }}>
-                  <td style={{ ...S.td, maxWidth: 280 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      {post.full_picture && (
-                        <img src={post.full_picture} style={{ width: 36, height: 36, objectFit: "cover", borderRadius: 4, flexShrink: 0 }} alt="" />
-                      )}
-                      <span style={{ color: "#ccc", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>
-                        {post.message?.slice(0, 80) || "(no caption)"}
-                      </span>
-                    </div>
-                  </td>
-                  <td style={{ ...S.td, color: "#888" }}>{new Date(post.created_time).toLocaleDateString()}</td>
-                  <td style={{ ...S.td, color: "#e1306c", fontWeight: 600 }}>{fmtNumber(post.reactions)}</td>
-                  <td style={{ ...S.td, color: "#f59e0b" }}>{fmtNumber(post.comments)}</td>
-                  <td style={{ ...S.td, color: "#10b981" }}>{fmtNumber(post.shares)}</td>
-                  <td style={S.td}>
-                    <a href={post.permalink_url} target="_blank" rel="noopener noreferrer" style={{ color: "#6366f1", fontSize: 12 }}>View ↗</a>
-                  </td>
-                </tr>
-              ))
-            }
-          </tbody>
-        </table>
+    <div>
+      {/* ── Charts Row ── */}
+      {posts.length > 0 && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 20 }}>
+
+          {/* Best Day to Post */}
+          <div style={{ ...S.card, padding: 16 }}>
+            <p style={{ margin: "0 0 14px", fontWeight: 700, fontSize: 14 }}>Best Day to Post</p>
+            <ResponsiveContainer width="100%" height={160}>
+              <BarChart data={dayData}>
+                <CartesianGrid stroke="#1a1a2e" />
+                <XAxis dataKey="day" tick={{ fill: "#555", fontSize: 10 }} />
+                <YAxis tick={{ fill: "#555", fontSize: 9 }} width={40} tickFormatter={v => fmtNumber(v)} />
+                <Tooltip
+                  contentStyle={{ background: "#13131f", color: "#e5e5e5", border: "1px solid #2a2a3e", borderRadius: 8, fontSize: 12 }}
+                  formatter={v => [fmtNumber(v), "Avg engagement"]}
+                />
+                <Bar dataKey="avg" radius={[3, 3, 0, 0]}>
+                  {dayData.map((entry, i) => (
+                    <Cell key={i} fill={entry.avg === maxDayAvg && maxDayAvg > 0 ? "#10b981" : "#6366f1"} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* Content mix */}
+          <div style={{ ...S.card, padding: 16 }}>
+            <p style={{ margin: "0 0 6px", fontWeight: 700, fontSize: 14 }}>Content Mix</p>
+            <p style={{ margin: "0 0 14px", fontSize: 11, color: "#555" }}>{posts.length} posts total</p>
+            <ResponsiveContainer width="100%" height={160}>
+              <BarChart data={mixData} layout="vertical" margin={{ left: 0, right: 16 }}>
+                <CartesianGrid stroke="#1a1a2e" horizontal={false} />
+                <XAxis type="number" tick={{ fill: "#555", fontSize: 9 }} />
+                <YAxis type="category" dataKey="type" tick={{ fill: "#ccc", fontSize: 11 }} width={80} />
+                <Tooltip
+                  contentStyle={{ background: "#13131f", color: "#e5e5e5", border: "1px solid #2a2a3e", borderRadius: 8, fontSize: 12 }}
+                  formatter={v => [v, "Posts"]}
+                />
+                <Bar dataKey="count" radius={[0, 3, 3, 0]}>
+                  {mixData.map((entry, i) => (
+                    <Cell key={i} fill={entry.fill} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
+
+      {/* ── Posts Table ── */}
+      <div style={{ ...S.card, overflow: "hidden" }}>
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr style={{ background: "#13131f" }}>
+                <th style={{ ...S.th, minWidth: 220 }}>Post</th>
+                <th style={{ ...S.th, minWidth: 90 }}>Date</th>
+                <SortTh k="reactions" label="Reactions" minWidth={90} />
+                <SortTh k="comments"  label="Comments"  minWidth={90} />
+                <SortTh k="shares"    label="Shares"    minWidth={70} />
+                <th style={S.th}>Link</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sorted.length === 0
+                ? <tr><td colSpan={6} style={{ ...S.th, textAlign: "center", padding: 20 }}>No posts in this period</td></tr>
+                : sorted.map((post, i) => (
+                  <tr key={post.id} style={{ borderTop: "1px solid #1a1a2e", background: i % 2 ? "#ffffff04" : "transparent" }}>
+                    <td style={{ ...S.td, maxWidth: 280 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        {post.full_picture && (
+                          <img src={post.full_picture} style={{ width: 36, height: 36, objectFit: "cover", borderRadius: 4, flexShrink: 0 }} alt="" />
+                        )}
+                        <span style={{ color: "#ccc", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>
+                          {post.message?.slice(0, 80) || "(no caption)"}
+                        </span>
+                      </div>
+                    </td>
+                    <td style={{ ...S.td, color: "#888" }}>{new Date(post.created_time).toLocaleDateString()}</td>
+                    <td style={{ ...S.td, color: "#e1306c", fontWeight: 600 }}>{fmtNumber(post.reactions)}</td>
+                    <td style={{ ...S.td, color: "#f59e0b" }}>{fmtNumber(post.comments)}</td>
+                    <td style={{ ...S.td, color: "#10b981" }}>{fmtNumber(post.shares)}</td>
+                    <td style={S.td}>
+                      <a href={post.permalink_url} target="_blank" rel="noopener noreferrer" style={{ color: "#6366f1", fontSize: 12 }}>View ↗</a>
+                    </td>
+                  </tr>
+                ))
+              }
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );
@@ -614,7 +685,7 @@ function InstagramTab({ igData, igError }) {
               <XAxis dataKey="date" tick={{ fill: "#555", fontSize: 9 }} />
               <YAxis tick={{ fill: "#555", fontSize: 9 }} width={55} tickFormatter={v => fmtNumber(v)} />
               <Tooltip
-                contentStyle={{ background: "#13131f", border: `1px solid ${activeIgMeta.color}`, borderRadius: 8, fontSize: 12 }}
+                contentStyle={{ background: "#13131f", color: "#e5e5e5", border: `1px solid ${activeIgMeta.color}`, borderRadius: 8, fontSize: 12 }}
                 formatter={v => [fmtNumber(v), activeIgMeta.label]}
               />
               <Line type="monotone" dataKey={currentKey} stroke={activeIgMeta.color} strokeWidth={2.5} dot={{ r: 3, fill: activeIgMeta.color }} />
@@ -641,7 +712,7 @@ function InstagramTab({ igData, igError }) {
               <XAxis dataKey="date" tick={{ fill: "#555", fontSize: 9 }} />
               <YAxis tick={{ fill: "#555", fontSize: 9 }} width={45} />
               <Tooltip
-                contentStyle={{ background: "#13131f", border: "1px solid #2a2a3e", borderRadius: 8, fontSize: 12 }}
+                contentStyle={{ background: "#13131f", color: "#e5e5e5", border: "1px solid #2a2a3e", borderRadius: 8, fontSize: 12 }}
                 formatter={v => [v >= 0 ? `+${v}` : String(v), "Net followers"]}
               />
               <Bar dataKey="net_followers" radius={[3, 3, 0, 0]}>
@@ -667,7 +738,7 @@ function InstagramTab({ igData, igError }) {
                 <XAxis type="number" tick={{ fill: "#555", fontSize: 9 }} />
                 <YAxis type="category" dataKey="type" tick={{ fill: "#ccc", fontSize: 11 }} width={60} />
                 <Tooltip
-                  contentStyle={{ background: "#13131f", border: "1px solid #2a2a3e", borderRadius: 8, fontSize: 12 }}
+                  contentStyle={{ background: "#13131f", color: "#e5e5e5", border: "1px solid #2a2a3e", borderRadius: 8, fontSize: 12 }}
                   formatter={(v, name) => [v, name === "count" ? "Posts" : "Avg Engagement"]}
                 />
                 <Bar dataKey="count" fill="#c13584" radius={[0, 3, 3, 0]} name="count" />
@@ -688,7 +759,7 @@ function InstagramTab({ igData, igError }) {
                 <XAxis dataKey="day" tick={{ fill: "#555", fontSize: 10 }} />
                 <YAxis tick={{ fill: "#555", fontSize: 9 }} width={40} tickFormatter={v => fmtNumber(v)} />
                 <Tooltip
-                  contentStyle={{ background: "#13131f", border: "1px solid #2a2a3e", borderRadius: 8, fontSize: 12 }}
+                  contentStyle={{ background: "#13131f", color: "#e5e5e5", border: "1px solid #2a2a3e", borderRadius: 8, fontSize: 12 }}
                   formatter={v => [fmtNumber(v), "Avg engagement"]}
                 />
                 <Bar dataKey="avg" radius={[3, 3, 0, 0]}>
@@ -717,7 +788,7 @@ function InstagramTab({ igData, igError }) {
                     <CartesianGrid stroke="#1a1a2e" horizontal={false} />
                     <XAxis type="number" tick={{ fill: "#555", fontSize: 9 }} tickFormatter={v => fmtNumber(v)} />
                     <YAxis type="category" dataKey="age" tick={{ fill: "#ccc", fontSize: 11 }} width={48} />
-                    <Tooltip contentStyle={{ background: "#13131f", border: "1px solid #2a2a3e", borderRadius: 8, fontSize: 12 }} />
+                    <Tooltip contentStyle={{ background: "#13131f", color: "#e5e5e5", border: "1px solid #2a2a3e", borderRadius: 8, fontSize: 12 }} />
                     <Bar dataKey="value" fill="#c13584" radius={[0, 3, 3, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
