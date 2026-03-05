@@ -559,6 +559,58 @@ app.get("/api/dashboards/:id/google/keywords", authMiddleware, async (req, res) 
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ── Facebook OAuth flow ──────────────────────────────────
+
+app.get("/api/facebook/auth-start", authMiddleware, adminOnly, (req, res) => {
+  const { dash_id } = req.query;
+  if (!dash_id) return res.status(400).json({ error: "dash_id required" });
+  const params = new URLSearchParams({
+    client_id:    process.env.FACEBOOK_APP_ID,
+    redirect_uri: `${process.env.BACKEND_URL}/api/facebook/callback`,
+    state:        dash_id,
+    scope:        "pages_show_list,pages_read_engagement,pages_read_user_content,read_insights,instagram_basic,instagram_manage_insights",
+    response_type: "code",
+  });
+  res.redirect(`https://www.facebook.com/dialog/oauth?${params}`);
+});
+
+app.get("/api/facebook/callback", async (req, res) => {
+  const { code, state: dash_id, error: fbError } = req.query;
+  const frontendAdmin = `${process.env.FRONTEND_URL}/admin`;
+  if (fbError) return res.redirect(`${frontendAdmin}?fb_error=${encodeURIComponent(fbError)}`);
+  try {
+    // 1. Exchange code for short-lived user token
+    const codeRes  = await fetch(`https://graph.facebook.com/v18.0/oauth/access_token?client_id=${process.env.FACEBOOK_APP_ID}&client_secret=${process.env.FACEBOOK_APP_SECRET}&redirect_uri=${encodeURIComponent(`${process.env.BACKEND_URL}/api/facebook/callback`)}&code=${code}`);
+    const codeJson = await codeRes.json();
+    if (codeJson.error) throw new Error(codeJson.error.message);
+
+    // 2. Exchange for long-lived user token (~60 days)
+    const llRes  = await fetch(`https://graph.facebook.com/v18.0/oauth/access_token?grant_type=fb_exchange_token&client_id=${process.env.FACEBOOK_APP_ID}&client_secret=${process.env.FACEBOOK_APP_SECRET}&fb_exchange_token=${codeJson.access_token}`);
+    const llJson = await llRes.json();
+    if (llJson.error) throw new Error(llJson.error.message);
+
+    // 3. Get all pages this user manages + their Page Access Tokens
+    const pagesRes  = await fetch(`https://graph.facebook.com/v18.0/me/accounts?access_token=${llJson.access_token}`);
+    const pagesJson = await pagesRes.json();
+    if (pagesJson.error) throw new Error(pagesJson.error.message);
+
+    // 4. Look up which page ID this dashboard uses
+    const { data: dash } = await supabase.from("dashboards").select("act_id").eq("id", dash_id).single();
+    if (!dash) throw new Error("Dashboard not found");
+
+    // 5. Find the matching page and grab its token
+    const page = (pagesJson.data || []).find(p => p.id === dash.act_id);
+    if (!page) throw new Error(`Page ${dash.act_id} not found in this Facebook account. Make sure you log in as the page admin.`);
+
+    // 6. Save Page Access Token to DB
+    await supabase.from("dashboards").update({ page_token: page.access_token }).eq("id", dash_id);
+
+    res.redirect(`${frontendAdmin}?fb_connected=1`);
+  } catch (e) {
+    res.redirect(`${frontendAdmin}?fb_error=${encodeURIComponent(e.message)}`);
+  }
+});
+
 // ── Organic: Facebook Page ───────────────────────────────
 
 app.get("/api/dashboards/:id/organic/facebook", authMiddleware, async (req, res) => {
@@ -572,16 +624,21 @@ app.get("/api/dashboards/:id/organic/facebook", authMiddleware, async (req, res)
   const { since, until } = req.query;
   try {
     const timeRange = `since=${since}&until=${until}`;
-    // page_fans fetched separately as a page field (avoids period-mixing issues in Insights)
-    const pageInfoUrl = `${META_BASE}/${pageId}?fields=fan_count&access_token=${token}`;
-    const insightsUrl = `${META_BASE}/${pageId}/insights?metric=page_impressions,page_engaged_users&period=day&${timeRange}&access_token=${token}`;
-    const postsUrl    = `${META_BASE}/${pageId}/posts?fields=id,message,created_time,full_picture,permalink_url&${timeRange}&limit=50&access_token=${token}`;
-
-    // Fetch page info and posts in parallel; insights fetched separately (non-fatal)
-    const [pageInfoRes, postsRes] = await Promise.all([fetch(pageInfoUrl), fetch(postsUrl)]);
-    const [pageInfoJson, postsJson] = await Promise.all([pageInfoRes.json(), postsRes.json()]);
+    // Step 1: Exchange the System User token for a Page Access Token + fan_count in one call
+    const pageInfoRes  = await fetch(`${META_BASE}/${pageId}?fields=fan_count,access_token&access_token=${token}`);
+    const pageInfoJson = await pageInfoRes.json();
     if (pageInfoJson.error) throw new Error(`[page-info] ${pageInfoJson.error.message || JSON.stringify(pageInfoJson.error)}`);
-    if (postsJson.error)    throw new Error(`[posts]     ${postsJson.error.message    || JSON.stringify(postsJson.error)}`);
+
+    // Use the Page Access Token for all subsequent calls (falls back to original token if not returned)
+    const pageToken = pageInfoJson.access_token || token;
+
+    const insightsUrl = `${META_BASE}/${pageId}/insights?metric=page_impressions,page_engaged_users&period=day&${timeRange}&access_token=${pageToken}`;
+    const postsUrl    = `${META_BASE}/${pageId}/posts?fields=id,message,created_time,full_picture,permalink_url&${timeRange}&limit=50&access_token=${pageToken}`;
+
+    // Fetch posts (insights fetched separately — non-fatal)
+    const postsRes  = await fetch(postsUrl);
+    const postsJson = await postsRes.json();
+    if (postsJson.error) throw new Error(`[posts] ${postsJson.error.message || JSON.stringify(postsJson.error)}`);
 
     // Insights — non-fatal: if Meta rejects the metrics, return empty data + the raw Meta error
     let insights = [];
@@ -638,18 +695,19 @@ app.get("/api/dashboards/:id/organic/instagram", authMiddleware, async (req, res
   const token  = dash.page_token;
   const { since, until } = req.query;
   try {
-    // Step 1: Resolve linked Instagram Business account
-    const igLookupRes  = await fetch(`${META_BASE}/${pageId}?fields=instagram_business_account&access_token=${token}`);
+    // Step 1: Exchange System User token for Page Access Token + resolve Instagram account
+    const igLookupRes  = await fetch(`${META_BASE}/${pageId}?fields=access_token,instagram_business_account&access_token=${token}`);
     const igLookupJson = await igLookupRes.json();
+    const pageToken = igLookupJson.access_token || token; // use Page token for subsequent calls
     if (igLookupJson.error) throw new Error(igLookupJson.error.message || JSON.stringify(igLookupJson.error));
     if (!igLookupJson.instagram_business_account?.id) {
       return res.json({ error: "not_connected" });
     }
     const igId = igLookupJson.instagram_business_account.id;
     const timeRange = `since=${since}&until=${until}`;
-    // Step 2: Fetch IG insights and media in parallel
-    const igInsightsUrl = `${META_BASE}/${igId}/insights?metric=impressions,reach,profile_views&period=day&${timeRange}&access_token=${token}`;
-    const igMediaUrl    = `${META_BASE}/${igId}/media?fields=id,caption,media_type,timestamp,like_count,comments_count,insights.metric(impressions,reach,engagement)&${timeRange}&limit=50&access_token=${token}`;
+    // Step 2: Fetch IG insights and media using the Page Access Token
+    const igInsightsUrl = `${META_BASE}/${igId}/insights?metric=impressions,reach,profile_views&period=day&${timeRange}&access_token=${pageToken}`;
+    const igMediaUrl    = `${META_BASE}/${igId}/media?fields=id,caption,media_type,timestamp,like_count,comments_count,insights.metric(impressions,reach,engagement)&${timeRange}&limit=50&access_token=${pageToken}`;
     const [insRes, mediaRes] = await Promise.all([fetch(igInsightsUrl), fetch(igMediaUrl)]);
     const [insJson, mediaJson] = await Promise.all([insRes.json(), mediaRes.json()]);
     if (insJson.error)   throw new Error(insJson.error.message   || JSON.stringify(insJson.error));

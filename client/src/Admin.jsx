@@ -26,12 +26,18 @@ export default function Admin({ auth, onLogout }) {
   const [addAccess, setAddAccess] = useState({ user_id: "", role: "viewer" });
   const [tokenModal, setTokenModal] = useState(null);
   const [newToken, setNewToken] = useState("");
+  const [tokenTab, setTokenTab] = useState("oauth"); // "oauth" | "manual"
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
   const h = authHeaders(auth.token);
 
-  useEffect(() => { loadDashboards(); loadUsers(); }, []);
+  useEffect(() => {
+    loadDashboards(); loadUsers();
+    const p = new URLSearchParams(window.location.search);
+    if (p.get("fb_connected")) { flash("Facebook Page connected successfully! ✅"); window.history.replaceState({}, "", "/admin"); }
+    if (p.get("fb_error"))     { flash(decodeURIComponent(p.get("fb_error")), true); window.history.replaceState({}, "", "/admin"); }
+  }, []);
 
   const loadDashboards = async () => {
     const res = await fetch(`${API}/admin/dashboards`, { headers: h });
@@ -306,18 +312,47 @@ export default function Admin({ auth, onLogout }) {
                 </div>
                 <button onClick={() => setTokenModal(null)} style={{ background: "none", border: "none", color: "#555", fontSize: 22, cursor: "pointer" }}>✕</button>
               </div>
-              <p style={{ color: "#888", fontSize: 12, margin: "0 0 12px" }}>Paste the new long-lived Page Access Token from Business Manager:</p>
-              <textarea
-                value={newToken}
-                onChange={e => setNewToken(e.target.value)}
-                placeholder="EAAxxxxx..."
-                rows={4}
-                style={{ ...S.inp, width: "100%", resize: "vertical", fontFamily: "monospace", fontSize: 11 }}
-              />
-              <div style={{ display: "flex", gap: 8, marginTop: 14, justifyContent: "flex-end" }}>
-                <button onClick={() => setTokenModal(null)} style={S.btn()}>Cancel</button>
-                <button onClick={updateToken} style={{ ...S.btn("#10b981", "#fff") }}>Save Token</button>
+              {/* Tabs */}
+              <div style={{ display: "flex", gap: 6, marginBottom: 16 }}>
+                {[{ k: "oauth", l: "🔗 Connect with Facebook" }, { k: "manual", l: "✏️ Paste Token" }].map(t => (
+                  <button key={t.k} onClick={() => setTokenTab(t.k)} style={{
+                    ...S.btn(tokenTab === t.k ? "#10b981" : "#2a2a3e", tokenTab === t.k ? "#fff" : "#aaa"),
+                    fontSize: 12, padding: "7px 12px",
+                  }}>{t.l}</button>
+                ))}
               </div>
+
+              {tokenTab === "oauth" ? (
+                <div style={{ textAlign: "center", padding: "16px 0" }}>
+                  <p style={{ color: "#888", fontSize: 12, margin: "0 0 16px" }}>
+                    The page admin clicks the button below, logs in with their Facebook account, and the token is saved automatically. No copy-pasting needed.
+                  </p>
+                  <a
+                    href={`${API}/facebook/auth-start?dash_id=${tokenModal?.id}`}
+                    style={{ display: "inline-block", background: "#1877f2", color: "#fff", borderRadius: 8, padding: "11px 22px", fontWeight: 700, fontSize: 14, textDecoration: "none" }}
+                  >
+                    f &nbsp; Connect Facebook Page
+                  </a>
+                  <p style={{ color: "#555", fontSize: 11, margin: "12px 0 0" }}>
+                    Share this Admin URL with the page admin so they can click the button themselves.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <p style={{ color: "#888", fontSize: 12, margin: "0 0 12px" }}>Paste a Page Access Token manually:</p>
+                  <textarea
+                    value={newToken}
+                    onChange={e => setNewToken(e.target.value)}
+                    placeholder="EAAxxxxx..."
+                    rows={4}
+                    style={{ ...S.inp, width: "100%", resize: "vertical", fontFamily: "monospace", fontSize: 11 }}
+                  />
+                  <div style={{ display: "flex", gap: 8, marginTop: 14, justifyContent: "flex-end" }}>
+                    <button onClick={() => setTokenModal(null)} style={S.btn()}>Cancel</button>
+                    <button onClick={updateToken} style={{ ...S.btn("#10b981", "#fff") }}>Save Token</button>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         )}
