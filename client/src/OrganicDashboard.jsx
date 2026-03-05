@@ -28,7 +28,7 @@ const ALL_FB_METRICS = [
   { key: "page_fans",                label: "Followers",       color: "#6366f1" },
   // NPE-compatible metrics
   { key: "page_post_engagements",    label: "Engagements",     color: "#f59e0b" },
-  { key: "page_views_total",         label: "Page Views",      color: "#3b82f6" },
+  { key: "page_views_total",         label: "Profile Visits",  color: "#3b82f6" },
   { key: "page_daily_follows",       label: "New Followers",   color: "#10b981" },
   { key: "page_daily_unfollows",     label: "Unfollows",       color: "#ef4444" },
   { key: "page_posts_impressions",   label: "Post Views",      color: "#8b5cf6" },

@@ -632,10 +632,21 @@ app.get("/api/dashboards/:id/organic/facebook", authMiddleware, async (req, res)
     const pageToken = pageInfoJson.access_token || token;
     const fanCount  = pageInfoJson.fan_count || 0;
 
-    // Step 2: Fetch posts (reliable endpoint; include reactions, shares, comments)
-    const postsRes  = await fetch(`${META_BASE}/${pageId}/posts?fields=id,message,created_time,full_picture,permalink_url,reactions.summary(total_count),shares,comments.summary(total_count)&${timeRange}&limit=50&access_token=${pageToken}`);
-    const postsJson = await postsRes.json();
-    if (postsJson.error) throw new Error(`[posts] ${postsJson.error.message || JSON.stringify(postsJson.error)}`);
+    // Step 2: Fetch ALL published content (posts + reels + videos) via published_posts.
+    // /posts only returns regular posts; /published_posts includes Reels & all media types.
+    // Paginate up to 200 posts to match the selected date range.
+    const postFields = "id,message,created_time,full_picture,permalink_url,reactions.summary(total_count),shares,comments.summary(total_count)";
+    let allRawPosts = [];
+    let nextUrl = `${META_BASE}/${pageId}/published_posts?fields=${postFields}&${timeRange}&limit=100&access_token=${pageToken}`;
+    // Fetch up to 2 pages (200 posts max) to keep response time reasonable
+    for (let page = 0; page < 2 && nextUrl; page++) {
+      const pageRes  = await fetch(nextUrl);
+      const pageJson = await pageRes.json();
+      if (pageJson.error) throw new Error(`[posts] ${pageJson.error.message || JSON.stringify(pageJson.error)}`);
+      allRawPosts = allRawPosts.concat(pageJson.data || []);
+      nextUrl = pageJson.paging?.next || null;
+    }
+    const postsJson = { data: allRawPosts };
 
     // Step 3: Probe each page-level insight metric INDIVIDUALLY (in parallel).
     // Many v1 metrics are deprecated for New Pages Experience pages in v17+.
