@@ -50,7 +50,6 @@ async function getGoogleAccessToken() {
 }
 
 // ── Google Ads API query helper ─────────────────────────
-// ── Google Ads API query helper ─────────────────────────
 async function googleAdsQuery(customerId, query) {
   const accessToken = await getGoogleAccessToken();
   const cleanId = customerId.replace(/-/g, "");
@@ -68,7 +67,7 @@ async function googleAdsQuery(customerId, query) {
     body: JSON.stringify({ query }),
   });
   const data = await r.json();
-  if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
+  if (data.error) throw new Error(JSON.stringify(data.error));
   return data.results || [];
 }
 
@@ -90,7 +89,7 @@ app.post("/api/login", async (req, res) => {
       { expiresIn: "7d" }
     );
     res.json({ token, user: { id: user.id, email: user.email, role: user.role } });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) { res.status(500).json({ error: e.message, stack: e.stack?.split("\n")[0] }); }
 });
 
 app.post("/api/forgot-password", async (req, res) => {
@@ -121,7 +120,7 @@ app.post("/api/forgot-password", async (req, res) => {
       `,
     });
     res.json({ success: true });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) { res.status(500).json({ error: e.message, stack: e.stack?.split("\n")[0] }); }
 });
 
 app.post("/api/reset-password", async (req, res) => {
@@ -136,7 +135,7 @@ app.post("/api/reset-password", async (req, res) => {
     await supabase.from("users").update({ password: hash }).eq("id", reset.user_id);
     await supabase.from("password_resets").delete().eq("token", token);
     res.json({ success: true });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) { res.status(500).json({ error: e.message, stack: e.stack?.split("\n")[0] }); }
 });
 
 // ── Admin: Users ────────────────────────────────────────
@@ -160,7 +159,7 @@ app.post("/api/admin/users", authMiddleware, adminOnly, async (req, res) => {
       return res.status(500).json({ error: error.message });
     }
     res.json(data);
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) { res.status(500).json({ error: e.message, stack: e.stack?.split("\n")[0] }); }
 });
 
 app.delete("/api/admin/users/:id", authMiddleware, adminOnly, async (req, res) => {
@@ -237,7 +236,7 @@ app.post("/api/dashboards/:id/access", authMiddleware, async (req, res) => {
       .select().single();
     if (error) return res.status(500).json({ error: error.message });
     res.json(data);
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) { res.status(500).json({ error: e.message, stack: e.stack?.split("\n")[0] }); }
 });
 
 app.delete("/api/dashboards/:id/access/:userId", authMiddleware, async (req, res) => {
@@ -347,7 +346,7 @@ app.get("/api/dashboards/:id/insights/campaigns", authMiddleware, async (req, re
   try {
     const data = await fetchAllPages(url);
     res.json({ data, type: dash.type, conversion_event: dash.conversion_event });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) { res.status(500).json({ error: e.message, stack: e.stack?.split("\n")[0] }); }
 });
 
 app.get("/api/dashboards/:id/insights/adsets", authMiddleware, async (req, res) => {
@@ -362,7 +361,7 @@ app.get("/api/dashboards/:id/insights/adsets", authMiddleware, async (req, res) 
   try {
     const data = await fetchAllPages(url);
     res.json({ data, type: dash.type, conversion_event: dash.conversion_event });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) { res.status(500).json({ error: e.message, stack: e.stack?.split("\n")[0] }); }
 });
 
 app.get("/api/dashboards/:id/insights/account", authMiddleware, async (req, res) => {
@@ -375,7 +374,7 @@ app.get("/api/dashboards/:id/insights/account", authMiddleware, async (req, res)
   try {
     const data = await fetchAllPages(url);
     res.json({ data, type: dash.type, conversion_event: dash.conversion_event });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) { res.status(500).json({ error: e.message, stack: e.stack?.split("\n")[0] }); }
 });
 
 app.get("/api/dashboards/:id/insights/ads", authMiddleware, async (req, res) => {
@@ -389,7 +388,7 @@ app.get("/api/dashboards/:id/insights/ads", authMiddleware, async (req, res) => 
   try {
     const data = await fetchAllPages(url);
     res.json({ data, type: dash.type, conversion_event: dash.conversion_event });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) { res.status(500).json({ error: e.message, stack: e.stack?.split("\n")[0] }); }
 });
 
 // ── Google Ads Proxy ────────────────────────────────────
@@ -428,7 +427,7 @@ app.get("/api/dashboards/:id/google/account", authMiddleware, async (req, res) =
       cpm: (r.metrics?.averageCpm || 0) / 1_000_000,
     }));
     res.json({ data });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) { res.status(500).json({ error: e.message, stack: e.stack?.split("\n")[0] }); }
 });
 
 app.get("/api/dashboards/:id/google/campaigns", authMiddleware, async (req, res) => {
@@ -470,7 +469,7 @@ app.get("/api/dashboards/:id/google/campaigns", authMiddleware, async (req, res)
       cpm: (r.metrics?.averageCpm || 0) / 1_000_000,
     }));
     res.json({ data });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) { res.status(500).json({ error: e.message, stack: e.stack?.split("\n")[0] }); }
 });
 
 app.get("/api/dashboards/:id/google/adgroups", authMiddleware, async (req, res) => {
@@ -512,7 +511,7 @@ app.get("/api/dashboards/:id/google/adgroups", authMiddleware, async (req, res) 
       cpm: (r.metrics?.averageCpm || 0) / 1_000_000,
     }));
     res.json({ data });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) { res.status(500).json({ error: e.message, stack: e.stack?.split("\n")[0] }); }
 });
 
 app.get("/api/dashboards/:id/google/keywords", authMiddleware, async (req, res) => {
@@ -556,7 +555,7 @@ app.get("/api/dashboards/:id/google/keywords", authMiddleware, async (req, res) 
       cpm: (r.metrics?.averageCpm || 0) / 1_000_000,
     }));
     res.json({ data });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) { res.status(500).json({ error: e.message, stack: e.stack?.split("\n")[0] }); }
 });
 
 // ── Facebook OAuth flow ──────────────────────────────────
@@ -759,7 +758,7 @@ app.get("/api/dashboards/:id/organic/facebook", authMiddleware, async (req, res)
     });
 
     res.json({ insights, summary, posts, postTotals, insightsError, availableMetrics, metricErrors, metricNoData });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) { res.status(500).json({ error: e.message, stack: e.stack?.split("\n")[0] }); }
 });
 
 // ── Organic: Instagram ────────────────────────────────────
@@ -910,7 +909,7 @@ app.get("/api/dashboards/:id/organic/instagram", authMiddleware, async (req, res
     });
 
     res.json({ insights, summary, media, igAvailableMetrics, igMetricErrors, demographics });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) { res.status(500).json({ error: e.message, stack: e.stack?.split("\n")[0] }); }
 });
 
 // ── Start ───────────────────────────────────────────────
