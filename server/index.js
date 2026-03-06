@@ -409,27 +409,23 @@ app.get("/api/google/debug", authMiddleware, async (req, res) => {
       return res.json({ step: "token_exchange_failed", tokenData });
     }
 
-    // Step 2: try without MCC header
-    const r1 = await fetch(`${GOOGLE_ADS_BASE}/customers:listAccessibleCustomers`, {
-      headers: { Authorization: `Bearer ${tokenData.access_token}`, "developer-token": GOOGLE_DEV_TOKEN },
-    });
-    const withoutMcc = await r1.json();
-
-    // Step 3: try with MCC header
-    const r2 = await fetch(`${GOOGLE_ADS_BASE}/customers:listAccessibleCustomers`, {
+    const customerId = "9908766745"; // test customer ID directly
+    const r = await fetch(`${GOOGLE_ADS_BASE}/customers/${customerId}/googleAds:search`, {
+      method: "POST",
       headers: {
         Authorization: `Bearer ${tokenData.access_token}`,
         "developer-token": GOOGLE_DEV_TOKEN,
         "login-customer-id": process.env.GOOGLE_MCC_ID?.replace(/-/g, ""),
+        "Content-Type": "application/json",
       },
+      body: JSON.stringify({ query: "SELECT customer.id, customer.descriptive_name FROM customer LIMIT 1" }),
     });
-    const withMcc = await r2.json();
+    const data = await r.json();
 
     res.json({
       token_scope: tokenData.scope,
       mcc_id_env: process.env.GOOGLE_MCC_ID || "(not set)",
-      without_mcc_header: withoutMcc,
-      with_mcc_header: withMcc,
+      customer_query_result: data,
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
