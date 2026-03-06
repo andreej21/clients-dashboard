@@ -410,34 +410,30 @@ app.get("/api/google/debug", authMiddleware, async (req, res) => {
     }
 
     const customerId = "9908766745";
-    const baseHeaders = {
+    const mccId = process.env.GOOGLE_MCC_ID?.replace(/-/g, "");
+    const headers = {
       Authorization: `Bearer ${tokenData.access_token}`,
       "developer-token": GOOGLE_DEV_TOKEN,
+      "login-customer-id": mccId,
       "Content-Type": "application/json",
     };
     const query = JSON.stringify({ query: "SELECT customer.id, customer.descriptive_name FROM customer LIMIT 1" });
 
-    // Try with MCC header
-    const r1 = await fetch(`${GOOGLE_ADS_BASE}/customers/${customerId}/googleAds:search`, {
-      method: "POST",
-      headers: { ...baseHeaders, "login-customer-id": process.env.GOOGLE_MCC_ID?.replace(/-/g, "") },
-      body: query,
-    });
-    const withMcc = await r1.json();
-
-    // Try without MCC header
-    const r2 = await fetch(`${GOOGLE_ADS_BASE}/customers/${customerId}/googleAds:search`, {
-      method: "POST",
-      headers: baseHeaders,
-      body: query,
-    });
-    const withoutMcc = await r2.json();
+    // Try v19, v18, v17 to find which version works
+    const versions = ["v19", "v18", "v17"];
+    const results = {};
+    for (const v of versions) {
+      const r = await fetch(`https://googleads.googleapis.com/${v}/customers/${customerId}/googleAds:search`, {
+        method: "POST", headers, body: query,
+      });
+      results[v] = { status: r.status, body: await r.json() };
+    }
 
     res.json({
       token_scope: tokenData.scope,
-      mcc_id_env: process.env.GOOGLE_MCC_ID || "(not set)",
-      with_mcc_header: withMcc,
-      without_mcc_header: withoutMcc,
+      mcc_id: mccId,
+      customer_id: customerId,
+      version_results: results,
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
