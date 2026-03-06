@@ -52,7 +52,7 @@ async function getGoogleAccessToken() {
 // ── Google Ads API query helper ─────────────────────────
 async function googleAdsQuery(customerId, query) {
   const accessToken = await getGoogleAccessToken();
-  const cleanId = customerId.replace(/-/g, "");
+  const cleanId = customerId.trim().replace(/-/g, "");
   const headers = {
     Authorization: `Bearer ${accessToken}`,
     "developer-token": GOOGLE_DEV_TOKEN,
