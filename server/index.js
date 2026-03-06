@@ -14,7 +14,7 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 const PORT = process.env.PORT || 3001;
 const META_BASE = "https://graph.facebook.com/v18.0";
 const META_TOKEN = process.env.META_TOKEN;
-const GOOGLE_ADS_BASE = "https://googleads.googleapis.com/v19";
+const GOOGLE_ADS_BASE = "https://googleads.googleapis.com/v20";
 const GOOGLE_DEV_TOKEN = process.env.GOOGLE_ADS_DEVELOPER_TOKEN;
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
@@ -66,7 +66,10 @@ async function googleAdsQuery(customerId, query) {
     headers,
     body: JSON.stringify({ query }),
   });
-  const data = await r.json();
+  const text = await r.text();
+  let data;
+  try { data = JSON.parse(text); }
+  catch { throw new Error(`Google Ads API returned non-JSON (HTTP ${r.status}): ${text.slice(0, 200)}`); }
   if (data.error) throw new Error(JSON.stringify(data.error));
   return data.results || [];
 }
@@ -389,53 +392,6 @@ app.get("/api/dashboards/:id/insights/ads", authMiddleware, async (req, res) => 
     const data = await fetchAllPages(url);
     res.json({ data, type: dash.type, conversion_event: dash.conversion_event });
   } catch (e) { res.status(500).json({ error: e.message, stack: e.stack?.split("\n")[0] }); }
-});
-
-// ── Google Ads Debug (temporary) ────────────────────────
-
-app.get("/api/google/debug", authMiddleware, async (req, res) => {
-  try {
-    // Step 1: test token exchange
-    const params = new URLSearchParams({
-      client_id: GOOGLE_CLIENT_ID,
-      client_secret: GOOGLE_CLIENT_SECRET,
-      refresh_token: GOOGLE_REFRESH_TOKEN,
-      grant_type: "refresh_token",
-    });
-    const tokenRes  = await fetch("https://oauth2.googleapis.com/token", { method: "POST", body: params });
-    const tokenData = await tokenRes.json();
-
-    if (!tokenData.access_token) {
-      return res.json({ step: "token_exchange_failed", tokenData });
-    }
-
-    const customerId = "9908766745";
-    const mccId = process.env.GOOGLE_MCC_ID?.replace(/-/g, "");
-    const headers = {
-      Authorization: `Bearer ${tokenData.access_token}`,
-      "developer-token": GOOGLE_DEV_TOKEN,
-      "login-customer-id": mccId,
-      "Content-Type": "application/json",
-    };
-    const query = JSON.stringify({ query: "SELECT customer.id, customer.descriptive_name FROM customer LIMIT 1" });
-
-    // Try v19, v18, v17 to find which version works
-    const versions = ["v19", "v18", "v17"];
-    const results = {};
-    for (const v of versions) {
-      const r = await fetch(`https://googleads.googleapis.com/${v}/customers/${customerId}/googleAds:search`, {
-        method: "POST", headers, body: query,
-      });
-      results[v] = { status: r.status, body: await r.json() };
-    }
-
-    res.json({
-      token_scope: tokenData.scope,
-      mcc_id: mccId,
-      customer_id: customerId,
-      version_results: results,
-    });
-  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ── Google Ads Proxy ────────────────────────────────────
