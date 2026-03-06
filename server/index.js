@@ -409,23 +409,35 @@ app.get("/api/google/debug", authMiddleware, async (req, res) => {
       return res.json({ step: "token_exchange_failed", tokenData });
     }
 
-    const customerId = "9908766745"; // test customer ID directly
-    const r = await fetch(`${GOOGLE_ADS_BASE}/customers/${customerId}/googleAds:search`, {
+    const customerId = "9908766745";
+    const baseHeaders = {
+      Authorization: `Bearer ${tokenData.access_token}`,
+      "developer-token": GOOGLE_DEV_TOKEN,
+      "Content-Type": "application/json",
+    };
+    const query = JSON.stringify({ query: "SELECT customer.id, customer.descriptive_name FROM customer LIMIT 1" });
+
+    // Try with MCC header
+    const r1 = await fetch(`${GOOGLE_ADS_BASE}/customers/${customerId}/googleAds:search`, {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${tokenData.access_token}`,
-        "developer-token": GOOGLE_DEV_TOKEN,
-        "login-customer-id": process.env.GOOGLE_MCC_ID?.replace(/-/g, ""),
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ query: "SELECT customer.id, customer.descriptive_name FROM customer LIMIT 1" }),
+      headers: { ...baseHeaders, "login-customer-id": process.env.GOOGLE_MCC_ID?.replace(/-/g, "") },
+      body: query,
     });
-    const data = await r.json();
+    const withMcc = await r1.json();
+
+    // Try without MCC header
+    const r2 = await fetch(`${GOOGLE_ADS_BASE}/customers/${customerId}/googleAds:search`, {
+      method: "POST",
+      headers: baseHeaders,
+      body: query,
+    });
+    const withoutMcc = await r2.json();
 
     res.json({
       token_scope: tokenData.scope,
       mcc_id_env: process.env.GOOGLE_MCC_ID || "(not set)",
-      customer_query_result: data,
+      with_mcc_header: withMcc,
+      without_mcc_header: withoutMcc,
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
