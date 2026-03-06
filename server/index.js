@@ -395,17 +395,33 @@ app.get("/api/dashboards/:id/insights/ads", authMiddleware, async (req, res) => 
 
 app.get("/api/google/debug", authMiddleware, async (req, res) => {
   try {
-    const accessToken = await getGoogleAccessToken();
-    // List all customers this OAuth token can access
+    // Step 1: test token exchange
+    const params = new URLSearchParams({
+      client_id: GOOGLE_CLIENT_ID,
+      client_secret: GOOGLE_CLIENT_SECRET,
+      refresh_token: GOOGLE_REFRESH_TOKEN,
+      grant_type: "refresh_token",
+    });
+    const tokenRes  = await fetch("https://oauth2.googleapis.com/token", { method: "POST", body: params });
+    const tokenData = await tokenRes.json();
+
+    if (!tokenData.access_token) {
+      return res.json({ step: "token_exchange_failed", tokenData });
+    }
+
+    // Step 2: list accessible customers
     const r = await fetch(`${GOOGLE_ADS_BASE}/customers:listAccessibleCustomers`, {
       headers: {
-        Authorization: `Bearer ${accessToken}`,
+        Authorization: `Bearer ${tokenData.access_token}`,
         "developer-token": GOOGLE_DEV_TOKEN,
       },
     });
     const data = await r.json();
     res.json({
+      step: "success",
+      token_scope: tokenData.scope,
       mcc_id_env: process.env.GOOGLE_MCC_ID || "(not set)",
+      dev_token_prefix: GOOGLE_DEV_TOKEN?.slice(0, 6) + "...",
       accessible_customers: data,
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
