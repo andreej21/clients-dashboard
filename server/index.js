@@ -391,6 +391,26 @@ app.get("/api/dashboards/:id/insights/ads", authMiddleware, async (req, res) => 
   } catch (e) { res.status(500).json({ error: e.message, stack: e.stack?.split("\n")[0] }); }
 });
 
+// ── Google Ads Debug (temporary) ────────────────────────
+
+app.get("/api/google/debug", authMiddleware, async (req, res) => {
+  try {
+    const accessToken = await getGoogleAccessToken();
+    // List all customers this OAuth token can access
+    const r = await fetch(`${GOOGLE_ADS_BASE}/customers:listAccessibleCustomers`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "developer-token": GOOGLE_DEV_TOKEN,
+      },
+    });
+    const data = await r.json();
+    res.json({
+      mcc_id_env: process.env.GOOGLE_MCC_ID || "(not set)",
+      accessible_customers: data,
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ── Google Ads Proxy ────────────────────────────────────
 
 app.get("/api/dashboards/:id/google/account", authMiddleware, async (req, res) => {
