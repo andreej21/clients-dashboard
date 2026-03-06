@@ -420,14 +420,14 @@ app.get("/api/dashboards/:id/google/account", authMiddleware, async (req, res) =
     `);
     const data = results.map(r => ({
       date: r.segments?.date,
-      spend: (r.metrics?.costMicros || 0) / 1_000_000,
-      impressions: r.metrics?.impressions || 0,
-      clicks: r.metrics?.clicks || 0,
-      conversions: r.metrics?.conversions || 0,
-      cpa: r.metrics?.costPerConversion ? r.metrics.costPerConversion / 1_000_000 : 0,
-      ctr: (r.metrics?.ctr || 0) * 100,
-      cpc: (r.metrics?.averageCpc || 0) / 1_000_000,
-      cpm: (r.metrics?.averageCpm || 0) / 1_000_000,
+      spend: parseInt(r.metrics?.costMicros || 0) / 1_000_000,
+      impressions: parseInt(r.metrics?.impressions || 0),
+      clicks: parseInt(r.metrics?.clicks || 0),
+      conversions: parseFloat(r.metrics?.conversions || 0),
+      cpa: r.metrics?.costPerConversion ? parseInt(r.metrics.costPerConversion) / 1_000_000 : 0,
+      ctr: parseFloat(r.metrics?.ctr || 0) * 100,
+      cpc: parseInt(r.metrics?.averageCpc || 0) / 1_000_000,
+      cpm: parseInt(r.metrics?.averageCpm || 0) / 1_000_000,
     }));
     res.json({ data });
   } catch (e) { res.status(500).json({ error: e.message, stack: e.stack?.split("\n")[0] }); }
@@ -462,14 +462,14 @@ app.get("/api/dashboards/:id/google/campaigns", authMiddleware, async (req, res)
       id: r.campaign?.id,
       name: r.campaign?.name,
       status: r.campaign?.status,
-      spend: (r.metrics?.costMicros || 0) / 1_000_000,
-      impressions: r.metrics?.impressions || 0,
-      clicks: r.metrics?.clicks || 0,
-      conversions: r.metrics?.conversions || 0,
-      cpa: r.metrics?.costPerConversion ? r.metrics.costPerConversion / 1_000_000 : 0,
-      ctr: (r.metrics?.ctr || 0) * 100,
-      cpc: (r.metrics?.averageCpc || 0) / 1_000_000,
-      cpm: (r.metrics?.averageCpm || 0) / 1_000_000,
+      spend: parseInt(r.metrics?.costMicros || 0) / 1_000_000,
+      impressions: parseInt(r.metrics?.impressions || 0),
+      clicks: parseInt(r.metrics?.clicks || 0),
+      conversions: parseFloat(r.metrics?.conversions || 0),
+      cpa: r.metrics?.costPerConversion ? parseInt(r.metrics.costPerConversion) / 1_000_000 : 0,
+      ctr: parseFloat(r.metrics?.ctr || 0) * 100,
+      cpc: parseInt(r.metrics?.averageCpc || 0) / 1_000_000,
+      cpm: parseInt(r.metrics?.averageCpm || 0) / 1_000_000,
     }));
     res.json({ data });
   } catch (e) { res.status(500).json({ error: e.message, stack: e.stack?.split("\n")[0] }); }
@@ -504,14 +504,14 @@ app.get("/api/dashboards/:id/google/adgroups", authMiddleware, async (req, res) 
       id: r.adGroup?.id,
       name: r.adGroup?.name,
       campaignName: r.campaign?.name,
-      spend: (r.metrics?.costMicros || 0) / 1_000_000,
-      impressions: r.metrics?.impressions || 0,
-      clicks: r.metrics?.clicks || 0,
-      conversions: r.metrics?.conversions || 0,
-      cpa: r.metrics?.costPerConversion ? r.metrics.costPerConversion / 1_000_000 : 0,
-      ctr: (r.metrics?.ctr || 0) * 100,
-      cpc: (r.metrics?.averageCpc || 0) / 1_000_000,
-      cpm: (r.metrics?.averageCpm || 0) / 1_000_000,
+      spend: parseInt(r.metrics?.costMicros || 0) / 1_000_000,
+      impressions: parseInt(r.metrics?.impressions || 0),
+      clicks: parseInt(r.metrics?.clicks || 0),
+      conversions: parseFloat(r.metrics?.conversions || 0),
+      cpa: r.metrics?.costPerConversion ? parseInt(r.metrics.costPerConversion) / 1_000_000 : 0,
+      ctr: parseFloat(r.metrics?.ctr || 0) * 100,
+      cpc: parseInt(r.metrics?.averageCpc || 0) / 1_000_000,
+      cpm: parseInt(r.metrics?.averageCpm || 0) / 1_000_000,
     }));
     res.json({ data });
   } catch (e) { res.status(500).json({ error: e.message, stack: e.stack?.split("\n")[0] }); }
@@ -548,14 +548,14 @@ app.get("/api/dashboards/:id/google/keywords", authMiddleware, async (req, res) 
       matchType: r.adGroupCriterion?.keyword?.matchType,
       adGroupName: r.adGroup?.name,
       campaignName: r.campaign?.name,
-      spend: (r.metrics?.costMicros || 0) / 1_000_000,
-      impressions: r.metrics?.impressions || 0,
-      clicks: r.metrics?.clicks || 0,
-      conversions: r.metrics?.conversions || 0,
-      cpa: r.metrics?.costPerConversion ? r.metrics.costPerConversion / 1_000_000 : 0,
-      ctr: (r.metrics?.ctr || 0) * 100,
-      cpc: (r.metrics?.averageCpc || 0) / 1_000_000,
-      cpm: (r.metrics?.averageCpm || 0) / 1_000_000,
+      spend: parseInt(r.metrics?.costMicros || 0) / 1_000_000,
+      impressions: parseInt(r.metrics?.impressions || 0),
+      clicks: parseInt(r.metrics?.clicks || 0),
+      conversions: parseFloat(r.metrics?.conversions || 0),
+      cpa: r.metrics?.costPerConversion ? parseInt(r.metrics.costPerConversion) / 1_000_000 : 0,
+      ctr: parseFloat(r.metrics?.ctr || 0) * 100,
+      cpc: parseInt(r.metrics?.averageCpc || 0) / 1_000_000,
+      cpm: parseInt(r.metrics?.averageCpm || 0) / 1_000_000,
     }));
     res.json({ data });
   } catch (e) { res.status(500).json({ error: e.message, stack: e.stack?.split("\n")[0] }); }
