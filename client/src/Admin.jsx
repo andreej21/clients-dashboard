@@ -139,7 +139,7 @@ export default function Admin({ auth, onLogout }) {
       <div style={{ background: "#1e1e2e", borderBottom: "1px solid #2a2a3e", padding: "14px 16px", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", position: "sticky", top: 0, zIndex: 20 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <h1 style={{ fontSize: 16, fontWeight: 800, margin: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-            <span style={{ color: "#6366f1" }}>SP Media</span> — Admin
+            <span style={{ color: "#6366f1" }}>SPMP</span> — Admin
           </h1>
           <p style={{ color: "#555", fontSize: 11, margin: "2px 0 0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{auth.user.email}</p>
         </div>

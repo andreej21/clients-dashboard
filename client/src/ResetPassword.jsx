@@ -37,7 +37,7 @@ export default function ResetPassword() {
     <div style={{ minHeight: "100vh", background: "#0f0f1a", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "system-ui,sans-serif", padding: 16 }}>
       <div style={{ width: "100%", maxWidth: 380, background: "#1e1e2e", border: "1px solid #2a2a3e", borderRadius: 16, padding: "32px 28px" }}>
         <h1 style={{ color: "#fff", fontSize: 22, fontWeight: 800, margin: "0 0 4px" }}>
-          <span style={{ color: "#6366f1" }}>SP Media</span> Dashboards
+          <span style={{ color: "#6366f1" }}>SPMP</span> Dashboards
         </h1>
 
         {!token && (

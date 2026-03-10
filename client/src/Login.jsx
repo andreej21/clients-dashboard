@@ -70,7 +70,7 @@ export default function Login({ onLogin }) {
 
       {/* Top-right SP logo */}
       <div style={{ position: "fixed", top: 18, right: 24, display: "flex", alignItems: "center", gap: 9, zIndex: 10 }}>
-        <img src={spLogo} alt="SP Media" style={{ height: 34, width: "auto" }} />
+        <img src={spLogo} alt="SPMP" style={{ height: 34, width: "auto" }} />
         <span style={{ color: "#aaa", fontSize: 13, fontWeight: 500, letterSpacing: "0.01em" }}>Client Dashboard</span>
       </div>
 
@@ -82,7 +82,7 @@ export default function Login({ onLogin }) {
         </div>
 
         <h1 style={{ color: "#fff", fontSize: 22, fontWeight: 800, margin: "0 0 4px", textAlign: "center" }}>
-          <span style={{ color: "#6366f1" }}>SP Media</span> Dashboards
+          <span style={{ color: "#6366f1" }}>SPMP</span> Dashboards
         </h1>
         <p style={{ color: "#555", fontSize: 13, margin: "0 0 28px", textAlign: "center" }}>
           {mode === "login" ? "Sign in to your account" : "Reset your password"}
