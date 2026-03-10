@@ -409,26 +409,36 @@ app.get("/api/dashboards/:id/google/account", authMiddleware, async (req, res) =
         metrics.cost_micros,
         metrics.impressions,
         metrics.clicks,
-        metrics.conversions,
-        metrics.cost_per_conversion,
-        metrics.ctr,
-        metrics.average_cpc,
-        metrics.average_cpm
-      FROM customer
+        metrics.conversions
+      FROM campaign
       WHERE segments.date BETWEEN '${since}' AND '${until}'
+        AND campaign.status != 'REMOVED'
       ORDER BY segments.date ASC
     `);
-    const data = results.map(r => ({
-      date: r.segments?.date,
-      spend: parseInt(r.metrics?.costMicros || 0) / 1_000_000,
-      impressions: parseInt(r.metrics?.impressions || 0),
-      clicks: parseInt(r.metrics?.clicks || 0),
-      conversions: parseFloat(r.metrics?.conversions || 0),
-      cpa: r.metrics?.costPerConversion ? parseInt(r.metrics.costPerConversion) / 1_000_000 : 0,
-      ctr: parseFloat(r.metrics?.ctr || 0) * 100,
-      cpc: parseInt(r.metrics?.averageCpc || 0) / 1_000_000,
-      cpm: parseInt(r.metrics?.averageCpm || 0) / 1_000_000,
-    }));
+    // Aggregate per-campaign rows into daily totals
+    const byDate = {};
+    for (const r of results) {
+      const date = r.segments?.date;
+      if (!byDate[date]) byDate[date] = { date, spend: 0, impressions: 0, clicks: 0, conversions: 0 };
+      byDate[date].spend       += parseInt(r.metrics?.costMicros  || 0);
+      byDate[date].impressions += parseInt(r.metrics?.impressions || 0);
+      byDate[date].clicks      += parseInt(r.metrics?.clicks      || 0);
+      byDate[date].conversions += parseFloat(r.metrics?.conversions || 0);
+    }
+    const data = Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date)).map(d => {
+      const spend = d.spend / 1_000_000;
+      return {
+        date:        d.date,
+        spend,
+        impressions: d.impressions,
+        clicks:      d.clicks,
+        conversions: d.conversions,
+        cpa:  d.conversions > 0  ? spend / d.conversions              : 0,
+        ctr:  d.impressions > 0  ? (d.clicks / d.impressions) * 100   : 0,
+        cpc:  d.clicks > 0       ? spend / d.clicks                   : 0,
+        cpm:  d.impressions > 0  ? (spend / d.impressions) * 1000     : 0,
+      };
+    });
     res.json({ data });
   } catch (e) { res.status(500).json({ error: e.message, stack: e.stack?.split("\n")[0] }); }
 });
