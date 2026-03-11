@@ -177,6 +177,7 @@ export default function Dashboard({ auth, onLogout, myDashboards = [], activeDas
   const defStart = new Date(defEnd); defStart.setDate(defStart.getDate() - 6);
   const [startDate, setStartDate] = useState(toYMD(defStart));
   const [endDate,   setEndDate]   = useState(toYMD(defEnd));
+  const [activePreset, setActivePreset] = useState(7);
 
   const h = authHeaders(auth.token);
 
@@ -201,6 +202,7 @@ export default function Dashboard({ auth, onLogout, myDashboards = [], activeDas
     const s = new Date(e);
     if (days > 1) s.setDate(s.getDate() - (days - 1));
     setStartDate(toYMD(s)); setEndDate(toYMD(e));
+    setActivePreset(days);
   };
 
   const fetchData = useCallback(async () => {
@@ -390,7 +392,7 @@ export default function Dashboard({ auth, onLogout, myDashboards = [], activeDas
                 </div>
                 <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
                   {[{ label: "Yesterday", d: 1 }, { label: "7d", d: 7 }, { label: "14d", d: 14 }, { label: "30d", d: 30 }].map(({ label, d }) => (
-                    <button key={d} onClick={() => applyPreset(d)} style={S.btn()}>{label}</button>
+                    <button key={d} onClick={() => applyPreset(d)} style={{ ...S.btn(activePreset === d ? "#6c63ff" : "#2a2a3e", activePreset === d ? "#fff" : "#aaa"), border: `1px solid ${activePreset === d ? "#6c63ff" : "transparent"}` }}>{label}</button>
                   ))}
                   <button onClick={() => setCompare(c => !c)} style={{
                     ...S.btn(compare ? "#f59e0b22" : "#2a2a3e", compare ? "#f59e0b" : "#aaa"),

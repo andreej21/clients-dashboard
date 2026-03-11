@@ -62,6 +62,7 @@ export default function GoogleDashboard({ auth, onLogout, myDashboards, activeDa
   const defStart = new Date(defEnd); defStart.setDate(defStart.getDate() - 6);
   const [startDate, setStartDate] = useState(toYMD(defStart));
   const [endDate, setEndDate]     = useState(toYMD(defEnd));
+  const [activePreset, setActivePreset] = useState(7);
 
   const h = authHeaders(auth.token);
 
@@ -70,6 +71,7 @@ export default function GoogleDashboard({ auth, onLogout, myDashboards, activeDa
     const s = new Date(e);
     if (days > 1) s.setDate(s.getDate() - (days - 1));
     setStartDate(toYMD(s)); setEndDate(toYMD(e));
+    setActivePreset(days);
   };
 
   const fetchData = useCallback(async () => {
@@ -214,7 +216,7 @@ export default function GoogleDashboard({ auth, onLogout, myDashboards, activeDa
                 </div>
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
                   {[{ label: "Yesterday", d: 1 }, { label: "7d", d: 7 }, { label: "14d", d: 14 }, { label: "30d", d: 30 }].map(({ label, d }) => (
-                    <button key={d} onClick={() => applyPreset(d)} style={S.btn()}>{label}</button>
+                    <button key={d} onClick={() => applyPreset(d)} style={{ ...S.btn(activePreset === d ? "#4285f4" : "#2a2a3e", activePreset === d ? "#fff" : "#aaa"), border: `1px solid ${activePreset === d ? "#4285f4" : "transparent"}` }}>{label}</button>
                   ))}
                   <button onClick={fetchData} disabled={loading || !activeDash} style={{ ...S.btn("#4285f4", "#fff"), opacity: loading ? 0.6 : 1, fontSize: 13 }}>
                     {loading ? "Loading…" : "Fetch Data"}

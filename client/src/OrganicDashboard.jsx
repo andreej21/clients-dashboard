@@ -79,6 +79,7 @@ export default function OrganicDashboard({ auth, onLogout, myDashboards, activeD
   const defStart = new Date(defEnd); defStart.setDate(defStart.getDate() - 27);
   const [startDate, setStartDate] = useState(toYMD(defStart));
   const [endDate,   setEndDate]   = useState(toYMD(defEnd));
+  const [activePreset, setActivePreset] = useState(28);
 
   const h = authHeaders(auth.token);
 
@@ -87,6 +88,7 @@ export default function OrganicDashboard({ auth, onLogout, myDashboards, activeD
     const s = new Date(e);
     if (days > 1) s.setDate(s.getDate() - (days - 1));
     setStartDate(toYMD(s)); setEndDate(toYMD(e));
+    setActivePreset(days);
   };
 
   const fetchData = useCallback(async () => {
@@ -226,7 +228,7 @@ export default function OrganicDashboard({ auth, onLogout, myDashboards, activeD
                 </div>
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
                   {[{ label: "7d", d: 7 }, { label: "14d", d: 14 }, { label: "28d", d: 28 }, { label: "90d", d: 90 }].map(({ label, d }) => (
-                    <button key={d} onClick={() => applyPreset(d)} style={S.btn()}>{label}</button>
+                    <button key={d} onClick={() => applyPreset(d)} style={{ ...S.btn(activePreset === d ? ORGANIC_COLOR : "#2a2a3e", activePreset === d ? "#fff" : "#aaa"), border: `1px solid ${activePreset === d ? ORGANIC_COLOR : "transparent"}` }}>{label}</button>
                   ))}
                   <button onClick={fetchData} disabled={loading || !activeDash} style={{ ...S.btn(ORGANIC_COLOR, "#fff"), opacity: loading ? 0.6 : 1, fontSize: 13 }}>
                     {loading ? "Loading…" : "Fetch Data"}
