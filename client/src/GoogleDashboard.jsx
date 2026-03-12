@@ -45,10 +45,17 @@ function computeTotals(rows) {
   return t;
 }
 
+const KW_SORTS = [
+  { label: "Lowest CPA",     key: "cpa",    dir: "asc",  filter: r => r.conversions > 0 },
+  { label: "Most Clicks",    key: "clicks", dir: "desc", filter: () => true },
+  { label: "Highest Spend",  key: "spend",  dir: "desc", filter: () => true },
+];
+
 export default function GoogleDashboard({ auth, onLogout, myDashboards, activeDash, setActiveDash }) {
   const nav = useNavigate();
   const { id } = useParams();
   const [tab, setTab]             = useState("account");
+  const [kwSort, setKwSort]       = useState(0);
   const [rows, setRows]           = useState(null);
   const [campaigns, setCampaigns] = useState(null);
   const [adgroups, setAdgroups]   = useState(null);
@@ -287,6 +294,59 @@ export default function GoogleDashboard({ auth, onLogout, myDashboards, activeDa
                   </LineChart>
                 </ResponsiveContainer>
               </div>
+
+              {/* Top Keywords */}
+              {keywords && keywords.length > 0 && (() => {
+                const s = KW_SORTS[kwSort];
+                const top = [...keywords].filter(s.filter).sort((a, b) =>
+                  s.dir === "asc" ? a[s.key] - b[s.key] : b[s.key] - a[s.key]
+                ).slice(0, 5);
+                return (
+                  <div style={{ ...S.card, overflow: "hidden", marginBottom: 20 }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 18px", borderBottom: "1px solid #2a2a3e", flexWrap: "wrap", gap: 8 }}>
+                      <p style={{ margin: 0, fontWeight: 700, fontSize: 14 }}>Top Keywords</p>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        {KW_SORTS.map((opt, i) => (
+                          <button key={i} onClick={() => setKwSort(i)} style={{
+                            ...S.btn(i === kwSort ? "#4285f4" : "#13131f", i === kwSort ? "#fff" : "#666"),
+                            border: `1px solid ${i === kwSort ? "#4285f4" : "#2a2a3e"}`, padding: "5px 11px", fontSize: 11,
+                          }}>{opt.label}</button>
+                        ))}
+                      </div>
+                    </div>
+                    <div style={{ overflowX: "auto" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                        <thead><tr style={{ background: "#13131f" }}>
+                          <th style={S.th}>Keyword</th>
+                          <th style={S.th}>Match</th>
+                          <th style={S.th}>Spend</th>
+                          <th style={S.th}>Clicks</th>
+                          <th style={S.th}>Conversions</th>
+                          <th style={S.th}>CPA</th>
+                          <th style={S.th}>CTR</th>
+                          <th style={S.th}>CPC</th>
+                        </tr></thead>
+                        <tbody>
+                          {top.map((row, i) => (
+                            <tr key={i} style={{ borderTop: "1px solid #1a1a2e", background: i % 2 ? "#ffffff04" : "transparent" }}>
+                              <td style={{ ...S.td, color: "#4285f4", fontWeight: 600 }}>
+                                <span style={{ color: "#555", marginRight: 6, fontSize: 11 }}>#{i + 1}</span>{row.keyword}
+                              </td>
+                              <td style={{ ...S.td, color: "#888", fontSize: 11 }}>{row.matchType}</td>
+                              <td style={{ ...S.td, color: "#6366f1", fontWeight: 600 }}>{fmtCurrency(row.spend)}</td>
+                              <td style={{ ...S.td, color: "#8b5cf6" }}>{fmtNumber(row.clicks)}</td>
+                              <td style={{ ...S.td, color: "#10b981", fontWeight: 600 }}>{parseFloat(row.conversions || 0).toFixed(1)}</td>
+                              <td style={{ ...S.td, color: "#f59e0b" }}>{row.cpa > 0 ? fmtCurrency(row.cpa) : "—"}</td>
+                              <td style={S.td}>{fmtPercent(row.ctr)}</td>
+                              <td style={S.td}>{fmtCurrency(row.cpc)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                );
+              })()}
 
               <div style={{ ...S.card, overflow: "hidden" }}>
                 <p style={{ margin: 0, padding: "14px 18px", fontWeight: 700, fontSize: 14, borderBottom: "1px solid #2a2a3e" }}>Daily Breakdown</p>
