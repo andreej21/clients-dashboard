@@ -135,24 +135,43 @@ export default function OrganicDashboard({ auth, onLogout, myDashboards, activeD
         <button onClick={() => setSidebarOpen(false)} style={{ background: "none", border: "none", color: "#555", fontSize: 20, cursor: "pointer", padding: 4 }} className="sidebar-close">✕</button>
       </div>
       <div style={{ flex: 1, padding: "8px 10px", overflowY: "auto" }}>
-        <p style={{ color: "#555", fontSize: 11, fontWeight: 600, padding: "4px 6px", margin: "0 0 4px" }}>CLIENTS</p>
-        {myDashboards.map(d => {
-          const badge = typeBadge[d.type] || typeBadge.app;
-          return (
-            <button key={d.id} onClick={() => switchDash(d)} style={{
-              width: "100%", textAlign: "left",
-              background: activeDash?.id === d.id ? "#6366f122" : "none",
-              border: `1px solid ${activeDash?.id === d.id ? "#6366f155" : "transparent"}`,
-              borderRadius: 8, padding: "9px 12px",
-              color: activeDash?.id === d.id ? "#fff" : "#888",
-              cursor: "pointer", fontSize: 13, fontWeight: activeDash?.id === d.id ? 600 : 400,
-              marginBottom: 2, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6,
-            }}>
-              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.name}</span>
-              <span style={{ fontSize: 10, color: badge.color, background: badge.color + "22", borderRadius: 4, padding: "1px 5px", flexShrink: 0 }}>{badge.label}</span>
-            </button>
-          );
-        })}
+        {(() => {
+          const metaDashes    = myDashboards.filter(d => ["app","lead","ecom"].includes(d.type));
+          const googleDashes  = myDashboards.filter(d => d.type === "google");
+          const organicDashes = myDashboards.filter(d => d.type === "organic");
+          const renderBtn = d => {
+            const badge = typeBadge[d.type] || typeBadge.app;
+            return (
+              <button key={d.id} onClick={() => switchDash(d)} style={{
+                width: "100%", textAlign: "left", background: activeDash?.id === d.id ? "#6366f122" : "none",
+                border: `1px solid ${activeDash?.id === d.id ? "#6366f155" : "transparent"}`,
+                borderRadius: 8, padding: "9px 12px", color: activeDash?.id === d.id ? "#fff" : "#888",
+                cursor: "pointer", fontSize: 13, fontWeight: activeDash?.id === d.id ? 600 : 400, marginBottom: 2,
+                display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6,
+              }}>
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.name}</span>
+                <span style={{ fontSize: 10, color: badge.color, background: badge.color + "22", borderRadius: 4, padding: "1px 5px", flexShrink: 0 }}>{badge.label}</span>
+              </button>
+            );
+          };
+          return (<>
+            {(metaDashes.length > 0 || googleDashes.length > 0) && <>
+              <p style={{ color: "#555", fontSize: 10, fontWeight: 700, letterSpacing: ".08em", padding: "4px 6px 2px", margin: "0 0 2px" }}>PAID</p>
+              {metaDashes.length > 0 && <>
+                <p style={{ color: "#6366f1", fontSize: 10, fontWeight: 600, padding: "2px 6px 1px", margin: 0 }}>Meta</p>
+                {metaDashes.map(renderBtn)}
+              </>}
+              {googleDashes.length > 0 && <>
+                <p style={{ color: "#4285f4", fontSize: 10, fontWeight: 600, padding: "2px 6px 1px", margin: "4px 0 0" }}>Google</p>
+                {googleDashes.map(renderBtn)}
+              </>}
+            </>}
+            {organicDashes.length > 0 && <>
+              <p style={{ color: "#555", fontSize: 10, fontWeight: 700, letterSpacing: ".08em", padding: "4px 6px 2px", margin: "8px 0 2px" }}>ORGANIC</p>
+              {organicDashes.map(renderBtn)}
+            </>}
+          </>);
+        })()}
       </div>
       <div style={{ padding: "12px 10px", borderTop: "1px solid #2a2a3e" }}>
         <p style={{ color: "#555", fontSize: 11, margin: "0 0 6px", padding: "0 6px" }}>{auth.user.email}</p>
