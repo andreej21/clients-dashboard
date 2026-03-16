@@ -676,7 +676,6 @@ app.get("/api/dashboards/:id/organic/facebook", authMiddleware, async (req, res)
       "page_daily_unfollows",         // lost followers per day (NPE)
       "page_posts_impressions",       // impressions on page posts (NPE replacement for page_impressions)
       "page_video_views",             // video views (NPE)
-      "page_content_activity",        // reactions + comments + shares on posts (NPE)
       // ── Legacy metrics (still work on classic pages) ──────────
       "page_fan_adds_unique",         // new unique followers per day (legacy)
       "page_impressions",             // total impressions (legacy)
@@ -719,14 +718,14 @@ app.get("/api/dashboards/:id/organic/facebook", authMiddleware, async (req, res)
     const availableMetrics = Object.keys(metricResults);  // only metrics with real data
 
     // Build insightsError message from what failed / returned no data
+    const LEGACY_METRICS = ["page_fan_adds_unique","page_impressions","page_engaged_users","page_fans"];
     let insightsError = null;
     if (availableMetrics.length === 0) {
-      const errParts = [];
-      if (Object.keys(metricErrors).length > 0)
-        errParts.push(`API errors: ${JSON.stringify(metricErrors)}`);
-      if (metricNoData.length > 0)
-        errParts.push(`No data in range for: ${metricNoData.join(', ')}`);
-      insightsError = errParts.length > 0 ? errParts.join(' | ') : 'No insight data returned';
+      const realErrors = Object.keys(metricErrors).filter(k => !LEGACY_METRICS.includes(k));
+      if (realErrors.length > 0)
+        insightsError = `API errors: ${JSON.stringify(Object.fromEntries(realErrors.map(k => [k, metricErrors[k]])))}`;
+      else
+        insightsError = "No insight data available for this date range. This page may be too new — Meta can take a few weeks to generate insights.";
     }
 
     // Summary: page_fans always from fan_count (it's a cumulative total — don't sum daily values).
