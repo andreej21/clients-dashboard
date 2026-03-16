@@ -648,10 +648,10 @@ app.get("/api/dashboards/:id/organic/facebook", authMiddleware, async (req, res)
     //   /published_posts → regular posts, photos, links
     //   /video_posts     → Facebook Reels + native videos (NOT returned by /published_posts)
     // Merge and deduplicate by post ID.
-    const postFields = "id,message,created_time,full_picture,permalink_url,reactions.summary(total_count),shares,comments.summary(total_count)";
+    const postFields = "id,message,created_time,permalink_url,reactions.summary(total_count),shares,comments.summary(total_count)";
     const [pubRes, vidRes] = await Promise.all([
-      fetch(`${META_BASE}/${pageId}/published_posts?fields=${postFields}&${timeRange}&limit=100&access_token=${pageToken}`),
-      fetch(`${META_BASE}/${pageId}/video_posts?fields=${postFields}&${timeRange}&limit=100&access_token=${pageToken}`),
+      fetch(`${META_BASE}/${pageId}/published_posts?fields=${postFields}&${timeRange}&limit=50&access_token=${pageToken}`),
+      fetch(`${META_BASE}/${pageId}/video_posts?fields=${postFields}&${timeRange}&limit=50&access_token=${pageToken}`),
     ]);
     const [pubJson, vidJson] = await Promise.all([pubRes.json(), vidRes.json()]);
     if (pubJson.error) throw new Error(`[posts] ${pubJson.error.message || JSON.stringify(pubJson.error)}`);
