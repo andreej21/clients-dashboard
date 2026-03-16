@@ -676,6 +676,7 @@ app.get("/api/dashboards/:id/organic/facebook", authMiddleware, async (req, res)
       "page_daily_unfollows",         // lost followers per day (NPE)
       "page_posts_impressions",       // impressions on page posts (NPE replacement for page_impressions)
       "page_video_views",             // video views (NPE)
+      "page_content_activity",        // reactions + comments + shares on posts (NPE)
       // ── Legacy metrics (still work on classic pages) ──────────
       "page_fan_adds_unique",         // new unique followers per day (legacy)
       "page_impressions",             // total impressions (legacy)
@@ -720,11 +721,12 @@ app.get("/api/dashboards/:id/organic/facebook", authMiddleware, async (req, res)
     // Build insightsError message from what failed / returned no data
     let insightsError = null;
     if (availableMetrics.length === 0) {
-      const hasRealErrors = Object.keys(metricErrors).some(k => !["page_fan_adds_unique","page_impressions","page_engaged_users","page_fans"].includes(k));
-      if (hasRealErrors)
-        insightsError = `API errors: ${JSON.stringify(metricErrors)}`;
-      else
-        insightsError = "No insight data available for this date range. Try a wider range (28d or 90d).";
+      const errParts = [];
+      if (Object.keys(metricErrors).length > 0)
+        errParts.push(`API errors: ${JSON.stringify(metricErrors)}`);
+      if (metricNoData.length > 0)
+        errParts.push(`No data in range for: ${metricNoData.join(', ')}`);
+      insightsError = errParts.length > 0 ? errParts.join(' | ') : 'No insight data returned';
     }
 
     // Summary: page_fans always from fan_count (it's a cumulative total — don't sum daily values).
