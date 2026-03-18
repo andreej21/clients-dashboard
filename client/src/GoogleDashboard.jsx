@@ -64,6 +64,9 @@ export default function GoogleDashboard({ auth, onLogout, myDashboards, activeDa
   const [error, setError]         = useState("");
   const [activeMetric, setActive] = useState("spend");
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [compare, setCompare]     = useState(false);
+  const [prevTotals, setPrevTotals] = useState(null);
+  const [prevRows, setPrevRows]     = useState(null);
 
   const defEnd = new Date(); defEnd.setDate(defEnd.getDate() - 1);
   const defStart = new Date(defEnd); defStart.setDate(defStart.getDate() - 6);
@@ -85,15 +88,22 @@ export default function GoogleDashboard({ auth, onLogout, myDashboards, activeDa
     if (!activeDash) return;
     setLoading(true); setError("");
     setRows(null); setCampaigns(null); setAdgroups(null); setKeywords(null);
+    setPrevTotals(null); setPrevRows(null);
     try {
       const params = `since=${startDate}&until=${endDate}`;
-      const [r1, r2, r3, r4] = await Promise.all([
+      const dayDiff = Math.round((new Date(endDate) - new Date(startDate)) / 86400000) + 1;
+      const prevEnd = new Date(startDate); prevEnd.setDate(prevEnd.getDate() - 1);
+      const prevStart = new Date(prevEnd); prevStart.setDate(prevStart.getDate() - (dayDiff - 1));
+      const prevParams = `since=${toYMD(prevStart)}&until=${toYMD(prevEnd)}`;
+      const fetches = [
         fetch(`${API}/dashboards/${activeDash.id}/google/account?${params}`,   { headers: h }),
         fetch(`${API}/dashboards/${activeDash.id}/google/campaigns?${params}`, { headers: h }),
         fetch(`${API}/dashboards/${activeDash.id}/google/adgroups?${params}`,  { headers: h }),
         fetch(`${API}/dashboards/${activeDash.id}/google/keywords?${params}`,  { headers: h }),
-      ]);
-      const [d1, d2, d3, d4] = await Promise.all([r1.json(), r2.json(), r3.json(), r4.json()]);
+      ];
+      if (compare) fetches.push(fetch(`${API}/dashboards/${activeDash.id}/google/account?${prevParams}`, { headers: h }));
+      const jsons = await Promise.all((await Promise.all(fetches)).map(r => r.json()));
+      const [d1, d2, d3, d4, d5] = jsons;
       if (d1.error) throw new Error(d1.error);
       if (d2.error) throw new Error(d2.error);
       if (d3.error) throw new Error(d3.error);
@@ -102,13 +112,19 @@ export default function GoogleDashboard({ auth, onLogout, myDashboards, activeDa
       setAdgroups(d3.data || []);
       setKeywords(d4.data || []);
       setActive("spend");
+      if (compare && d5) {
+        const pRows = d5.data || [];
+        setPrevRows(pRows);
+        setPrevTotals(computeTotals(pRows));
+      }
     } catch (e) { setError(e.message); }
     setLoading(false);
-  }, [activeDash, startDate, endDate]);
+  }, [activeDash, startDate, endDate, compare]);
 
   const switchDash = dash => {
     setActiveDash(dash);
     setRows(null); setCampaigns(null); setAdgroups(null); setKeywords(null);
+    setPrevRows(null); setPrevTotals(null);
     setError(""); setTab("account");
     setSidebarOpen(false);
     nav(`/dashboards/${dash.id}`);
@@ -246,11 +262,23 @@ export default function GoogleDashboard({ auth, onLogout, myDashboards, activeDa
                   {[{ label: "Yesterday", d: 1 }, { label: "7d", d: 7 }, { label: "14d", d: 14 }, { label: "30d", d: 30 }].map(({ label, d }) => (
                     <button key={d} onClick={() => applyPreset(d)} style={{ ...S.btn(activePreset === d ? "#4285f4" : "#2a2a3e", activePreset === d ? "#fff" : "#aaa"), border: `1px solid ${activePreset === d ? "#4285f4" : "transparent"}` }}>{label}</button>
                   ))}
+                  <button onClick={() => setCompare(c => !c)} style={{
+                    ...S.btn(compare ? "#f59e0b22" : "#2a2a3e", compare ? "#f59e0b" : "#aaa"),
+                    border: `1px solid ${compare ? "#f59e0b" : "transparent"}`,
+                  }}>
+                    {compare ? "⚡ Comparing" : "Compare"}
+                  </button>
                   <button onClick={fetchData} disabled={loading || !activeDash} style={{ ...S.btn("#4285f4", "#fff"), opacity: loading ? 0.6 : 1, fontSize: 13 }}>
                     {loading ? "Loading…" : "Fetch Data"}
                   </button>
                 </div>
               </div>
+              {compare && (() => {
+                const dayDiff = Math.round((new Date(endDate) - new Date(startDate)) / 86400000) + 1;
+                const pEnd = new Date(startDate); pEnd.setDate(pEnd.getDate() - 1);
+                const pStart = new Date(pEnd); pStart.setDate(pStart.getDate() - (dayDiff - 1));
+                return <p style={{ margin: "10px 0 0", fontSize: 12, color: "#f59e0b" }}>⚡ {startDate} → {endDate} vs {toYMD(pStart)} → {toYMD(pEnd)}</p>;
+              })()}
               {error && <p style={{ color: "#f87171", margin: "10px 0 0", fontSize: 12 }}>⚠️ {error}</p>}
             </div>
 
@@ -284,6 +312,11 @@ export default function GoogleDashboard({ auth, onLogout, myDashboards, activeDa
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px,1fr))", gap: 10, marginBottom: 20 }}>
                 {METRICS.map(m => {
                   const active = activeMetric === m.key;
+                  const curr = totals[m.key] || 0;
+                  const prev = prevTotals?.[m.key] || 0;
+                  const pct  = compare && prev > 0 ? ((curr - prev) / prev) * 100 : null;
+                  const costMetric = ["cpa","cpc","cpm"].includes(m.key);
+                  const isGood = pct === null ? null : costMetric ? pct < 0 : pct > 0;
                   return (
                     <div key={m.key} onClick={() => setActive(m.key)} style={{
                       ...S.card, padding: "12px 14px", cursor: "pointer",
@@ -292,26 +325,42 @@ export default function GoogleDashboard({ auth, onLogout, myDashboards, activeDa
                       boxShadow: active ? `0 0 0 1px ${m.color}55` : "none", transition: "all .15s",
                     }}>
                       <p style={{ margin: "0 0 4px", fontSize: 10, color: active ? m.color : "#666", fontWeight: 600, letterSpacing: ".04em" }}>{m.label.toUpperCase()}</p>
-                      <p style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>{m.format(totals[m.key] || 0)}</p>
+                      <p style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>{m.format(curr)}</p>
+                      {pct !== null && (
+                        <p style={{ margin: "4px 0 0", fontSize: 11, fontWeight: 600, color: isGood ? "#10b981" : "#ef4444" }}>
+                          {pct > 0 ? "▲" : "▼"} {Math.abs(pct).toFixed(1)}%
+                        </p>
+                      )}
                     </div>
                   );
                 })}
               </div>
 
               <div style={{ ...S.card, padding: 16, marginBottom: 20 }}>
-                <p style={{ margin: "0 0 14px", fontWeight: 700, fontSize: 14 }}>
-                  {activeMeta.label} <span style={{ color: "#555", fontWeight: 400, fontSize: 12 }}>— daily</span>
-                </p>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14, flexWrap: "wrap", gap: 8 }}>
+                  <p style={{ margin: 0, fontWeight: 700, fontSize: 14 }}>
+                    {activeMeta.label} <span style={{ color: "#555", fontWeight: 400, fontSize: 12 }}>— daily</span>
+                  </p>
+                  {compare && prevRows && (
+                    <div style={{ display: "flex", gap: 12, fontSize: 11 }}>
+                      <span style={{ color: activeMeta.color }}>— Current</span>
+                      <span style={{ color: "#f59e0b" }}>-- Previous</span>
+                    </div>
+                  )}
+                </div>
                 <ResponsiveContainer width="100%" height={200}>
-                  <LineChart data={rows}>
+                  <LineChart data={rows.map((r, i) => ({ ...r, prev: prevRows?.[i]?.[activeMetric] ?? null }))}>
                     <CartesianGrid stroke="#1e1e2e" />
                     <XAxis dataKey="date" tick={{ fill: "#555", fontSize: 9 }} />
                     <YAxis tick={{ fill: "#555", fontSize: 9 }} width={55} tickFormatter={v => activeMeta.format(v)} />
                     <Tooltip
                       contentStyle={{ background: "#13131f", border: `1px solid ${activeMeta.color}`, borderRadius: 8, fontSize: 12 }}
-                      formatter={v => [activeMeta.format(v), activeMeta.label]}
+                      formatter={(v, name) => [activeMeta.format(v), name === "prev" ? "Previous" : activeMeta.label]}
                     />
                     <Line type="monotone" dataKey={activeMetric} stroke={activeMeta.color} strokeWidth={2.5} dot={{ r: 3, fill: activeMeta.color }} />
+                    {compare && prevRows && (
+                      <Line type="monotone" dataKey="prev" stroke="#f59e0b" strokeWidth={2} strokeDasharray="5 5" dot={false} />
+                    )}
                   </LineChart>
                 </ResponsiveContainer>
               </div>
