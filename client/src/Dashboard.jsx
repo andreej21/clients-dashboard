@@ -635,47 +635,66 @@ export default function Dashboard({ auth, onLogout, myDashboards = [], activeDas
                 </div>
               </div>
 
-              <div style={{ ...S.card, overflow: "hidden" }}>
-                <p style={{ margin: 0, padding: "14px 18px", fontWeight: 700, fontSize: 14, borderBottom: "1px solid #2a2a3e" }}>Daily Breakdown</p>
-                <div style={{ overflowX: "auto" }}>
-                  <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                    <thead><tr style={{ background: "#13131f" }}>
-                      <th style={S.th}>Date</th><th style={S.th}>Conversions</th><th style={S.th}>CPA</th><th style={S.th}>Spend</th>
-                      {dashType === "ecom" && <><th style={S.th}>Revenue</th><th style={S.th}>ROAS</th></>}
-                      {dashType === "lead" && <th style={S.th}>Link Clicks</th>}
-                      <th style={S.th}>Impressions</th><th style={S.th}>Reach</th>
-                      <th style={S.th}>CPM</th><th style={S.th}>CPC</th><th style={S.th}>CTR</th>
-                      <th style={S.th}>Notes</th>
-                    </tr></thead>
-                    <tbody>
-                      {rows.map((row, i) => {
-                        const annot = annotations.find(a => a.date === row.date);
-                        return (
-                          <tr key={row.date} style={{ borderTop: "1px solid #1a1a2e", background: i % 2 ? "#ffffff04" : "transparent" }}>
-                            <td style={S.td}>{row.label}</td>
-                            <td style={{ ...S.td, color: "#10b981", fontWeight: 600 }}>{fmtNumber(row.conversions)}</td>
-                            <td style={{ ...S.td, color: "#f59e0b" }}>{row.conversionCost > 0 ? fmtCurrency(row.conversionCost) : "—"}</td>
-                            <td style={{ ...S.td, color: "#6366f1", fontWeight: 600 }}>{fmtCurrency(row.spend)}</td>
-                            {dashType === "ecom" && <>
-                              <td style={{ ...S.td, color: "#34d399", fontWeight: 600 }}>{fmtCurrency(row.revenue)}</td>
-                              <td style={{ ...S.td, color: "#fbbf24", fontWeight: 600 }}>{fmtROAS(row.roas)}</td>
-                            </>}
-                            {dashType === "lead" && <td style={S.td}>{fmtNumber(row.linkClicks)}</td>}
-                            <td style={S.td}>{fmtNumber(row.impressions)}</td>
-                            <td style={S.td}>{fmtNumber(row.reach)}</td>
-                            <td style={S.td}>{fmtCurrency(row.cpm)}</td>
-                            <td style={S.td}>{fmtCurrency(row.cpc)}</td>
-                            <td style={S.td}>{fmtPercent(row.ctr)}</td>
-                            <td style={{ ...S.td, color: "#fbbf24", maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis" }} title={annot?.note}>
-                              {annot ? `📝 ${annot.note}` : ""}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
+              {(() => {
+                const daysWithConv = rows.filter(r => r.conversions > 0);
+                const bestDate  = daysWithConv.length > 0 ? daysWithConv.reduce((a, b) => a.conversionCost < b.conversionCost ? a : b).date : rows.reduce((a, b) => a.impressions > b.impressions ? a : b, rows[0])?.date;
+                const worstDate = daysWithConv.length > 0 ? daysWithConv.reduce((a, b) => a.conversionCost > b.conversionCost ? a : b).date : rows.reduce((a, b) => a.impressions < b.impressions ? a : b, rows[0])?.date;
+                return (
+                  <div style={{ ...S.card, overflow: "hidden" }}>
+                    <div style={{ padding: "14px 18px", borderBottom: "1px solid #2a2a3e", display: "flex", alignItems: "center", gap: 12 }}>
+                      <p style={{ margin: 0, fontWeight: 700, fontSize: 14 }}>Daily Breakdown</p>
+                      <span style={{ fontSize: 11, color: "#10b981" }}>🟢 Best day</span>
+                      <span style={{ fontSize: 11, color: "#ef4444" }}>🔴 Worst day</span>
+                    </div>
+                    <div style={{ overflowX: "auto" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                        <thead><tr style={{ background: "#13131f" }}>
+                          <th style={S.th}>Date</th><th style={S.th}>Conversions</th><th style={S.th}>CPA</th><th style={S.th}>Spend</th>
+                          {dashType === "ecom" && <><th style={S.th}>Revenue</th><th style={S.th}>ROAS</th></>}
+                          {dashType === "lead" && <th style={S.th}>Link Clicks</th>}
+                          <th style={S.th}>Impressions</th><th style={S.th}>Reach</th>
+                          <th style={S.th}>CPM</th><th style={S.th}>CPC</th><th style={S.th}>CTR</th>
+                          <th style={S.th}>Notes</th>
+                        </tr></thead>
+                        <tbody>
+                          {rows.map((row, i) => {
+                            const annot   = annotations.find(a => a.date === row.date);
+                            const isBest  = row.date === bestDate;
+                            const isWorst = row.date === worstDate;
+                            const bg = isBest ? "#10b98112" : isWorst ? "#ef444412" : i % 2 ? "#ffffff04" : "transparent";
+                            const borderLeft = isBest ? "3px solid #10b981" : isWorst ? "3px solid #ef4444" : "3px solid transparent";
+                            return (
+                              <tr key={row.date} style={{ borderTop: "1px solid #1a1a2e", background: bg, borderLeft }}>
+                                <td style={S.td}>
+                                  {isBest && <span style={{ marginRight: 4 }}>🟢</span>}
+                                  {isWorst && <span style={{ marginRight: 4 }}>🔴</span>}
+                                  {row.label}
+                                </td>
+                                <td style={{ ...S.td, color: "#10b981", fontWeight: 600 }}>{fmtNumber(row.conversions)}</td>
+                                <td style={{ ...S.td, color: "#f59e0b" }}>{row.conversionCost > 0 ? fmtCurrency(row.conversionCost) : "—"}</td>
+                                <td style={{ ...S.td, color: "#6366f1", fontWeight: 600 }}>{fmtCurrency(row.spend)}</td>
+                                {dashType === "ecom" && <>
+                                  <td style={{ ...S.td, color: "#34d399", fontWeight: 600 }}>{fmtCurrency(row.revenue)}</td>
+                                  <td style={{ ...S.td, color: "#fbbf24", fontWeight: 600 }}>{fmtROAS(row.roas)}</td>
+                                </>}
+                                {dashType === "lead" && <td style={S.td}>{fmtNumber(row.linkClicks)}</td>}
+                                <td style={S.td}>{fmtNumber(row.impressions)}</td>
+                                <td style={S.td}>{fmtNumber(row.reach)}</td>
+                                <td style={S.td}>{fmtCurrency(row.cpm)}</td>
+                                <td style={S.td}>{fmtCurrency(row.cpc)}</td>
+                                <td style={S.td}>{fmtPercent(row.ctr)}</td>
+                                <td style={{ ...S.td, color: "#fbbf24", maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis" }} title={annot?.note}>
+                                  {annot ? `📝 ${annot.note}` : ""}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                );
+              })()}
             </>)}
           </div>
         </div>
