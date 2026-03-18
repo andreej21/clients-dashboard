@@ -285,6 +285,53 @@ export default function Dashboard({ auth, onLogout, myDashboards = [], activeDas
   const activeMeta = metrics.find(m => m.key === activeMetric) || metrics[0];
   const visibleAnnotations = annotations.filter(a => a.date >= startDate && a.date <= endDate);
 
+  const genInsights = () => {
+    if (!rows || rows.length === 0) return [];
+    const out = [];
+    const days = rows.length;
+    out.push({ icon: "💰", color: "#8b5cf6", text: `${fmtCurrency(totals.spend)} spent over ${days} day${days !== 1 ? "s" : ""} · avg ${fmtCurrency(totals.spend / days)}/day` });
+    const daysC = rows.filter(r => r.conversions > 0);
+    if (daysC.length > 0) {
+      const best  = daysC.reduce((a, b) => a.conversionCost < b.conversionCost ? a : b);
+      const worst = daysC.reduce((a, b) => a.conversionCost > b.conversionCost ? a : b);
+      out.push({ icon: "🎯", color: "#10b981", text: `Best day: ${best.label} — ${fmtCurrency(best.conversionCost)} CPA with ${best.conversions} conv` });
+      if (best.date !== worst.date)
+        out.push({ icon: "⚠️", color: "#f59e0b", text: `Worst day: ${worst.label} — ${fmtCurrency(worst.conversionCost)} CPA` });
+    } else {
+      out.push({ icon: "📊", color: "#555", text: "No conversions recorded in this period" });
+    }
+    if (totals.ctr > 0) {
+      const [ico, lvl, col] = totals.ctr >= 3 ? ["✅", "excellent", "#10b981"] : totals.ctr >= 2 ? ["📊", "good", "#6366f1"] : totals.ctr >= 1 ? ["📊", "average", "#f59e0b"] : ["⚠️", "below average — consider refreshing creatives", "#ef4444"];
+      out.push({ icon: ico, color: col, text: `CTR of ${fmtPercent(totals.ctr)} is ${lvl}` });
+    }
+    if (totals.cpm > 0) {
+      const [ico, lvl, col] = totals.cpm < 10 ? ["✅", "low — great audience efficiency", "#10b981"] : totals.cpm < 20 ? ["📊", "moderate", "#f59e0b"] : ["⚠️", "high — consider audience or creative changes", "#ef4444"];
+      out.push({ icon: ico, color: col, text: `CPM of ${fmtCurrency(totals.cpm)} is ${lvl}` });
+    }
+    if (ads && ads.length > 0) {
+      const adsC = ads.filter(a => a.conversions > 0 && a.spend > 0);
+      if (adsC.length > 0) {
+        const top = adsC.reduce((a, b) => a.conversionCost < b.conversionCost ? a : b);
+        out.push({ icon: "🏆", color: "#6366f1", text: `Top ad: "${top.name?.slice(0,40)}${top.name?.length > 40 ? "…" : ""}" · ${fmtCurrency(top.conversionCost)} CPA` });
+      }
+    }
+    if (compare && prevTotals && prevTotals.spend > 0) {
+      if (prevTotals.conversionCost > 0 && totals.conversionCost > 0) {
+        const d = ((totals.conversionCost - prevTotals.conversionCost) / prevTotals.conversionCost) * 100;
+        const good = d < 0;
+        out.push({ icon: good ? "📈" : "📉", color: good ? "#10b981" : "#ef4444", text: `CPA ${good ? "improved" : "worsened"} ${Math.abs(d).toFixed(1)}% vs previous period (${fmtCurrency(prevTotals.conversionCost)} → ${fmtCurrency(totals.conversionCost)})` });
+      }
+      if (prevTotals.conversions > 0) {
+        const d = ((totals.conversions - prevTotals.conversions) / prevTotals.conversions) * 100;
+        if (Math.abs(d) > 5) {
+          const good = d > 0;
+          out.push({ icon: good ? "📈" : "📉", color: good ? "#10b981" : "#ef4444", text: `Conversions ${good ? "up" : "down"} ${Math.abs(d).toFixed(1)}% vs previous period` });
+        }
+      }
+    }
+    return out;
+  };
+
   const Sidebar = () => (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
       <div style={{ padding: "20px 16px 12px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -498,11 +545,50 @@ export default function Dashboard({ auth, onLogout, myDashboards = [], activeDas
               </div>
             )}
 
-            {tab === "campaigns" && rows && (
-              campaigns?.length > 0
-                ? <BreakdownTable rows={campaigns} nameLabel="Campaign" dashType={dashType} convEvent={convEvent} />
-                : <div style={{ textAlign: "center", color: "#555", marginTop: 40, fontSize: 14 }}>No campaign data returned</div>
-            )}
+            {tab === "campaigns" && rows && (() => {
+              if (!campaigns?.length) return <div style={{ textAlign: "center", color: "#555", marginTop: 40, fontSize: 14 }}>No campaign data returned</div>;
+              const getHealth = c => {
+                let score = 100;
+                const avgCpa = totals.conversionCost;
+                if (c.conversions > 0 && avgCpa > 0) {
+                  const r = c.conversionCost / avgCpa;
+                  if (r > 1.5) score -= 40; else if (r > 1.2) score -= 25; else if (r > 0.8) score -= 10;
+                } else if (c.spend > 20 && c.conversions === 0) score -= 35;
+                if (totals.ctr > 0) {
+                  const r = c.ctr / totals.ctr;
+                  if (r < 0.5) score -= 25; else if (r < 0.8) score -= 10;
+                }
+                score = Math.max(0, Math.min(100, score));
+                if (score >= 75) return { label: "Healthy", color: "#10b981", bg: "#10b98112", score };
+                if (score >= 50) return { label: "Fair",    color: "#f59e0b", bg: "#f59e0b12", score };
+                return                { label: "Needs Attention", color: "#ef4444", bg: "#ef444412", score };
+              };
+              return (<>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(200px,1fr))", gap: 10, marginBottom: 20 }}>
+                  {campaigns.map((c, i) => {
+                    const h = getHealth(c);
+                    return (
+                      <div key={i} style={{ background: h.bg, border: `1px solid ${h.color}44`, borderRadius: 10, padding: "12px 14px" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, marginBottom: 8 }}>
+                          <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: "#ddd", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={c.name}>{c.name}</p>
+                          <span style={{ fontSize: 10, fontWeight: 700, color: h.color, background: h.color + "22", borderRadius: 4, padding: "2px 7px", flexShrink: 0 }}>{h.label}</span>
+                        </div>
+                        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 8 }}>
+                          <div><p style={{ margin: 0, fontSize: 9, color: "#555", letterSpacing: ".04em" }}>SPEND</p><p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: "#8b5cf6" }}>{fmtCurrency(c.spend)}</p></div>
+                          <div><p style={{ margin: 0, fontSize: 9, color: "#555", letterSpacing: ".04em" }}>CPA</p><p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: h.color }}>{c.conversionCost > 0 ? fmtCurrency(c.conversionCost) : "—"}</p></div>
+                          <div><p style={{ margin: 0, fontSize: 9, color: "#555", letterSpacing: ".04em" }}>CTR</p><p style={{ margin: 0, fontSize: 13, fontWeight: 700 }}>{fmtPercent(c.ctr)}</p></div>
+                          <div><p style={{ margin: 0, fontSize: 9, color: "#555", letterSpacing: ".04em" }}>CONV</p><p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: "#10b981" }}>{fmtNumber(c.conversions)}</p></div>
+                        </div>
+                        <div style={{ height: 4, background: "#ffffff10", borderRadius: 2, overflow: "hidden" }}>
+                          <div style={{ width: `${h.score}%`, height: "100%", background: h.color, borderRadius: 2 }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <BreakdownTable rows={campaigns} nameLabel="Campaign" dashType={dashType} convEvent={convEvent} />
+              </>);
+            })()}
             {tab === "adsets" && rows && (
               adsets?.length > 0
                 ? <BreakdownTable rows={adsets} nameLabel="Ad Set" subLabel="Campaign" subKey="campaignName" dashType={dashType} convEvent={convEvent} />
@@ -515,6 +601,23 @@ export default function Dashboard({ auth, onLogout, myDashboards = [], activeDas
             )}
 
             {tab === "account" && totals && (<>
+              {(() => {
+                const insights = genInsights();
+                if (!insights.length) return null;
+                return (
+                  <div style={{ ...S.card, padding: "14px 18px", marginBottom: 20 }}>
+                    <p style={{ margin: "0 0 10px", fontWeight: 700, fontSize: 13, color: "#888" }}>🧠 Smart Insights</p>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                      {insights.map((ins, i) => (
+                        <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+                          <span style={{ fontSize: 14, lineHeight: 1.4 }}>{ins.icon}</span>
+                          <p style={{ margin: 0, fontSize: 12, color: ins.color, lineHeight: 1.5 }}>{ins.text}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px,1fr))", gap: 10, marginBottom: 20 }}>
                 {metrics.map(m => {
                   const active = activeMetric === m.key;
@@ -686,6 +789,77 @@ export default function Dashboard({ auth, onLogout, myDashboards = [], activeDas
                                 <td style={{ ...S.td, color: "#fbbf24", maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis" }} title={annot?.note}>
                                   {annot ? `📝 ${annot.note}` : ""}
                                 </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {(() => {
+                const DOW = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+                const byDow = DOW.map((day, i) => {
+                  const idx = i === 6 ? 0 : i + 1;
+                  const dayRows = rows.filter(r => new Date(r.date + "T12:00:00").getDay() === idx);
+                  if (!dayRows.length) return { day, count: 0, spend: null, clicks: null, conversions: null, conversionCost: null, ctr: null };
+                  const n = dayRows.length;
+                  const sum = k => dayRows.reduce((s, r) => s + (r[k] || 0), 0);
+                  const daysC = dayRows.filter(r => r.conversions > 0);
+                  return {
+                    day, count: n,
+                    spend: sum("spend") / n,
+                    clicks: sum("clicks") / n,
+                    conversions: sum("conversions") / n,
+                    conversionCost: daysC.length > 0 ? daysC.reduce((s, r) => s + r.conversionCost, 0) / daysC.length : null,
+                    ctr: sum("ctr") / n,
+                  };
+                });
+                const colorCell = (val, vals, lowerBetter) => {
+                  const valid = vals.filter(v => v !== null && v > 0);
+                  if (!valid.length || val === null) return "transparent";
+                  const min = Math.min(...valid), max = Math.max(...valid);
+                  if (max === min) return "transparent";
+                  const t = (val - min) / (max - min);
+                  const good = lowerBetter ? 1 - t : t;
+                  return good > 0.66 ? "#10b98120" : good > 0.33 ? "#f59e0b12" : "#ef444420";
+                };
+                const dowMetrics = [
+                  { label: "Avg Spend",  key: "spend",           fmt: fmtCurrency,         lowerBetter: false },
+                  { label: "Avg Clicks", key: "clicks",           fmt: v => fmtNumber(Math.round(v)), lowerBetter: false },
+                  { label: "Avg Conv",   key: "conversions",      fmt: v => v.toFixed(1),   lowerBetter: false },
+                  { label: "Avg CPA",    key: "conversionCost",   fmt: v => v ? fmtCurrency(v) : "—", lowerBetter: true  },
+                  { label: "Avg CTR",    key: "ctr",              fmt: fmtPercent,          lowerBetter: false },
+                ];
+                return (
+                  <div style={{ ...S.card, overflow: "hidden", marginTop: 20 }}>
+                    <p style={{ margin: 0, padding: "14px 18px", fontWeight: 700, fontSize: 14, borderBottom: "1px solid #2a2a3e" }}>📅 Day-of-Week Performance</p>
+                    <div style={{ overflowX: "auto" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                        <thead>
+                          <tr style={{ background: "#13131f" }}>
+                            <th style={{ ...S.th, textAlign: "left", minWidth: 90 }}>Metric</th>
+                            {byDow.map(d => (
+                              <th key={d.day} style={{ ...S.th, minWidth: 75, textAlign: "center" }}>
+                                {d.day}
+                                {d.count > 0 && <span style={{ color: "#444", display: "block", fontWeight: 400, fontSize: 10 }}>{d.count}×</span>}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {dowMetrics.map(m => {
+                            const vals = byDow.map(d => d[m.key]);
+                            return (
+                              <tr key={m.key} style={{ borderTop: "1px solid #1a1a2e" }}>
+                                <td style={{ ...S.th, textAlign: "left", color: "#666", fontWeight: 600, fontSize: 11 }}>{m.label}</td>
+                                {byDow.map(d => (
+                                  <td key={d.day} style={{ ...S.td, textAlign: "center", background: colorCell(d[m.key], vals, m.lowerBetter) }}>
+                                    {d.count > 0 && d[m.key] !== null ? m.fmt(d[m.key]) : <span style={{ color: "#333" }}>—</span>}
+                                  </td>
+                                ))}
                               </tr>
                             );
                           })}
