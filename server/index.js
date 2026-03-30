@@ -334,8 +334,37 @@ async function checkDashboardAccess(req, res, dashId) {
 
 function getFields(type) {
   const base = "date_start,spend,impressions,reach,cpm,cost_per_unique_outbound_click,unique_outbound_clicks_ctr,actions,cost_per_action_type";
-  if (type === "ecom") return base + ",action_values";
+  if (type === "ecom" || type === "auto") return base + ",action_values";
   return base;
+}
+
+function buildCampaignFilter(campaign_ids) {
+  if (!campaign_ids) return "";
+  const ids = campaign_ids.split(",").map(id => id.trim()).filter(Boolean);
+  if (!ids.length) return "";
+  return `&filtering=${encodeURIComponent(JSON.stringify([{ field: "campaign.id", operator: "IN", value: ids }]))}`;
+}
+
+function detectGoal(adset) {
+  const optGoal = adset.optimization_goal;
+  const customEvent = adset.promoted_object?.custom_event_type;
+  if (optGoal === "APP_INSTALLS" || customEvent === "MOBILE_APP_INSTALL")
+    return { key: "app_install", type: "app", conv_event: "app_install", label: "App Installs" };
+  if (customEvent === "PURCHASE")
+    return { key: "purchase", type: "ecom", conv_event: "purchase", label: "Purchases" };
+  if (customEvent === "ADD_TO_CART")
+    return { key: "add_to_cart", type: "ecom", conv_event: "purchase", label: "Add to Cart" };
+  if (customEvent === "LEAD" || optGoal === "LEAD_GENERATION")
+    return { key: "lead", type: "lead", conv_event: "lead", label: "Leads" };
+  if (customEvent === "COMPLETE_REGISTRATION")
+    return { key: "complete_registration", type: "lead", conv_event: "complete_registration", label: "Registrations" };
+  if (customEvent === "ADD_PAYMENT_INFO")
+    return { key: "add_payment_info", type: "lead", conv_event: "add_payment_info", label: "Add Payment Info" };
+  if (customEvent === "SUBSCRIBE")
+    return { key: "subscribe", type: "lead", conv_event: "lead", label: "Subscriptions" };
+  const raw = customEvent || optGoal || "other";
+  const label = raw.replace(/_/g, " ").toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
+  return { key: raw, type: "lead", conv_event: "lead", label };
 }
 
 app.get("/api/dashboards/:id/insights/campaigns", authMiddleware, async (req, res) => {
@@ -343,9 +372,9 @@ app.get("/api/dashboards/:id/insights/campaigns", authMiddleware, async (req, re
   if (!await checkDashboardAccess(req, res, dashId)) return;
   const { data: dash } = await supabase.from("dashboards").select("act_id, type, conversion_event").eq("id", dashId).single();
   if (!dash) return res.status(404).json({ error: "Dashboard not found" });
-  const { since, until } = req.query;
+  const { since, until, campaign_ids } = req.query;
   const fields = `campaign_id,campaign_name,${getFields(dash.type)}`;
-  const url = `${META_BASE}/${dash.act_id}/insights?fields=${fields}&level=campaign&time_range=${encodeURIComponent(JSON.stringify({ since, until }))}&limit=100&access_token=${META_TOKEN}`;
+  const url = `${META_BASE}/${dash.act_id}/insights?fields=${fields}&level=campaign&time_range=${encodeURIComponent(JSON.stringify({ since, until }))}&limit=100&access_token=${META_TOKEN}${buildCampaignFilter(campaign_ids)}`;
   try {
     const data = await fetchAllPages(url);
     res.json({ data, type: dash.type, conversion_event: dash.conversion_event });
@@ -357,10 +386,11 @@ app.get("/api/dashboards/:id/insights/adsets", authMiddleware, async (req, res) 
   if (!await checkDashboardAccess(req, res, dashId)) return;
   const { data: dash } = await supabase.from("dashboards").select("act_id, type, conversion_event").eq("id", dashId).single();
   if (!dash) return res.status(404).json({ error: "Dashboard not found" });
-  const { since, until, campaign_id } = req.query;
+  const { since, until, campaign_id, campaign_ids } = req.query;
   const fields = `adset_id,adset_name,campaign_id,campaign_name,${getFields(dash.type)}`;
   let url = `${META_BASE}/${dash.act_id}/insights?fields=${fields}&level=adset&time_range=${encodeURIComponent(JSON.stringify({ since, until }))}&limit=100&access_token=${META_TOKEN}`;
   if (campaign_id) url += `&filtering=${encodeURIComponent(JSON.stringify([{ field: "campaign.id", operator: "EQUAL", value: campaign_id }]))}`;
+  else if (campaign_ids) url += buildCampaignFilter(campaign_ids);
   try {
     const data = await fetchAllPages(url);
     res.json({ data, type: dash.type, conversion_event: dash.conversion_event });
@@ -372,8 +402,8 @@ app.get("/api/dashboards/:id/insights/account", authMiddleware, async (req, res)
   if (!await checkDashboardAccess(req, res, dashId)) return;
   const { data: dash } = await supabase.from("dashboards").select("act_id, type, conversion_event").eq("id", dashId).single();
   if (!dash) return res.status(404).json({ error: "Dashboard not found" });
-  const { since, until } = req.query;
-  const url = `${META_BASE}/${dash.act_id}/insights?fields=${getFields(dash.type)}&level=account&time_range=${encodeURIComponent(JSON.stringify({ since, until }))}&time_increment=1&limit=100&access_token=${META_TOKEN}`;
+  const { since, until, campaign_ids } = req.query;
+  const url = `${META_BASE}/${dash.act_id}/insights?fields=${getFields(dash.type)}&level=account&time_range=${encodeURIComponent(JSON.stringify({ since, until }))}&time_increment=1&limit=100&access_token=${META_TOKEN}${buildCampaignFilter(campaign_ids)}`;
   try {
     const data = await fetchAllPages(url);
     res.json({ data, type: dash.type, conversion_event: dash.conversion_event });
@@ -385,12 +415,38 @@ app.get("/api/dashboards/:id/insights/ads", authMiddleware, async (req, res) => 
   if (!await checkDashboardAccess(req, res, dashId)) return;
   const { data: dash } = await supabase.from("dashboards").select("act_id, type, conversion_event").eq("id", dashId).single();
   if (!dash) return res.status(404).json({ error: "Dashboard not found" });
-  const { since, until } = req.query;
-  const adFields = `ad_id,ad_name,adset_name,campaign_name,spend,impressions,reach,cpm,cost_per_unique_outbound_click,unique_outbound_clicks_ctr,actions,cost_per_action_type${dash.type === "ecom" ? ",action_values" : ""}`;
-  const url = `${META_BASE}/${dash.act_id}/insights?fields=${adFields}&level=ad&time_range=${encodeURIComponent(JSON.stringify({ since, until }))}&limit=100&access_token=${META_TOKEN}`;
+  const { since, until, campaign_ids } = req.query;
+  const adFields = `ad_id,ad_name,adset_name,campaign_name,spend,impressions,reach,cpm,cost_per_unique_outbound_click,unique_outbound_clicks_ctr,actions,cost_per_action_type${(dash.type === "ecom" || dash.type === "auto") ? ",action_values" : ""}`;
+  const url = `${META_BASE}/${dash.act_id}/insights?fields=${adFields}&level=ad&time_range=${encodeURIComponent(JSON.stringify({ since, until }))}&limit=100&access_token=${META_TOKEN}${buildCampaignFilter(campaign_ids)}`;
   try {
     const data = await fetchAllPages(url);
     res.json({ data, type: dash.type, conversion_event: dash.conversion_event });
+  } catch (e) { res.status(500).json({ error: e.message, stack: e.stack?.split("\n")[0] }); }
+});
+
+app.get("/api/dashboards/:id/goal-groups", authMiddleware, async (req, res) => {
+  const dashId = parseInt(req.params.id);
+  if (!await checkDashboardAccess(req, res, dashId)) return;
+  const { data: dash } = await supabase.from("dashboards").select("act_id, type").eq("id", dashId).single();
+  if (!dash) return res.status(404).json({ error: "Dashboard not found" });
+  if (dash.type !== "auto") return res.json([]);
+  try {
+    const url = `${META_BASE}/${dash.act_id}/adsets?fields=campaign_id,campaign_name,optimization_goal,promoted_object&limit=500&access_token=${META_TOKEN}`;
+    const adsets = await fetchAllPages(url);
+    // Map each campaign to its goal (use first adset seen per campaign)
+    const campaignGoals = {};
+    for (const adset of adsets) {
+      if (!campaignGoals[adset.campaign_id]) {
+        campaignGoals[adset.campaign_id] = detectGoal(adset);
+      }
+    }
+    // Group campaigns by goal
+    const groupMap = {};
+    for (const [campaignId, goal] of Object.entries(campaignGoals)) {
+      if (!groupMap[goal.key]) groupMap[goal.key] = { ...goal, campaign_ids: [] };
+      groupMap[goal.key].campaign_ids.push(campaignId);
+    }
+    res.json(Object.values(groupMap));
   } catch (e) { res.status(500).json({ error: e.message, stack: e.stack?.split("\n")[0] }); }
 });
 

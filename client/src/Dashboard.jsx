@@ -96,7 +96,7 @@ const S = {
 };
 
 const authHeaders = token => ({ Authorization: `Bearer ${token}` });
-const typeBadge = { app: { label: "App", color: "#6366f1" }, lead: { label: "Lead Gen", color: "#10b981" }, ecom: { label: "Ecom", color: "#f59e0b" }, google: { label: "Google", color: "#4285f4" }, organic: { label: "Organic", color: "#10b981" } };
+const typeBadge = { app: { label: "App", color: "#6366f1" }, lead: { label: "Lead Gen", color: "#10b981" }, ecom: { label: "Ecom", color: "#f59e0b" }, google: { label: "Google", color: "#4285f4" }, organic: { label: "Organic", color: "#10b981" }, auto: { label: "Meta", color: "#1877f2" } };
 
 function exportCSV(rows, dashName, metrics) {
   const headers = ["Date", ...metrics.map(m => m.label)];
@@ -172,6 +172,8 @@ export default function Dashboard({ auth, onLogout, myDashboards = [], activeDas
   const [newAnnotNote, setNewAnnotNote] = useState("");
   const [annotLoading, setAnnotLoading] = useState(false);
   const [sidebarOpen, setSidebarOpen]   = useState(false);
+  const [goalGroups, setGoalGroups]     = useState(null);
+  const [activeGoalKey, setActiveGoalKey] = useState(null);
 
   const defEnd = new Date(); defEnd.setDate(defEnd.getDate() - 1);
   const defStart = new Date(defEnd); defStart.setDate(defStart.getDate() - 6);
@@ -197,6 +199,22 @@ export default function Dashboard({ auth, onLogout, myDashboards = [], activeDas
       .then(r => r.json()).then(data => setAnnotations(Array.isArray(data) ? data : []));
   }, [activeDash]);
 
+  useEffect(() => {
+    setGoalGroups(null); setActiveGoalKey(null);
+    if (!activeDash || activeDash.type !== "auto") return;
+    fetch(`${API}/dashboards/${activeDash.id}/goal-groups`, { headers: h })
+      .then(r => r.json())
+      .then(groups => {
+        if (Array.isArray(groups) && groups.length > 0) {
+          setGoalGroups(groups);
+          setActiveGoalKey(groups[0].key);
+        } else {
+          setGoalGroups([]);
+        }
+      })
+      .catch(() => setGoalGroups([]));
+  }, [activeDash?.id]);
+
   const applyPreset = days => {
     const e = new Date(); e.setDate(e.getDate() - 1);
     const s = new Date(e);
@@ -205,17 +223,21 @@ export default function Dashboard({ auth, onLogout, myDashboards = [], activeDas
     setActivePreset(days);
   };
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (goalKeyOverride) => {
     if (!activeDash) return;
     setLoading(true); setError("");
     setRows(null); setAds(null); setCampaigns(null); setAdsets(null);
     setPrevTotals(null); setPrevRows(null);
     try {
-      const params = `since=${startDate}&until=${endDate}`;
+      const goalKey = goalKeyOverride !== undefined ? goalKeyOverride : activeGoalKey;
+      const activeGoal = goalGroups?.find(g => g.key === goalKey);
+      const goalFilter = activeGoal?.campaign_ids?.length
+        ? `&campaign_ids=${activeGoal.campaign_ids.join(",")}` : "";
+      const params = `since=${startDate}&until=${endDate}${goalFilter}`;
       const dayDiff = Math.round((new Date(endDate) - new Date(startDate)) / 86400000) + 1;
       const prevEnd = new Date(startDate); prevEnd.setDate(prevEnd.getDate() - 1);
       const prevStart = new Date(prevEnd); prevStart.setDate(prevStart.getDate() - (dayDiff - 1));
-      const prevParams = `since=${toYMD(prevStart)}&until=${toYMD(prevEnd)}`;
+      const prevParams = `since=${toYMD(prevStart)}&until=${toYMD(prevEnd)}${goalFilter}`;
       const fetches = [
         fetch(`${API}/dashboards/${activeDash.id}/insights/account?${params}`,   { headers: h }),
         fetch(`${API}/dashboards/${activeDash.id}/insights/ads?${params}`,       { headers: h }),
@@ -226,7 +248,8 @@ export default function Dashboard({ auth, onLogout, myDashboards = [], activeDas
       const jsons = await Promise.all((await Promise.all(fetches)).map(r => r.json()));
       const [d1, d2, d3, d4, d5] = jsons;
       if (d1.error) throw new Error(`Account: ${d1.error}`);
-      const type = d1.type || "app", conv = d1.conversion_event || "app_install";
+      const type = activeGoal ? activeGoal.type : (d1.type || "app");
+      const conv = activeGoal ? activeGoal.conv_event : (d1.conversion_event || "app_install");
       setDashType(type); setConvEvent(conv);
       setRows((d1.data || []).map(r => parseRow(r, type, conv)).sort((a, b) => a.date.localeCompare(b.date)));
       setAds((d2.data || []).map(r => parseRow(r, type, conv)));
@@ -240,13 +263,19 @@ export default function Dashboard({ auth, onLogout, myDashboards = [], activeDas
       }
     } catch (e) { setError(e.message); }
     setLoading(false);
-  }, [activeDash, startDate, endDate, compare]);
+  }, [activeDash, startDate, endDate, compare, activeGoalKey, goalGroups]);
 
   const switchDash = dash => {
     setActiveDash(dash); setRows(null); setAds(null); setCampaigns(null); setAdsets(null);
     setError(""); setTab("account"); setAnnotations([]);
+    setGoalGroups(null); setActiveGoalKey(null);
     setSidebarOpen(false);
     nav(`/dashboards/${dash.id}`);
+  };
+
+  const switchGoal = (key) => {
+    setActiveGoalKey(key);
+    if (rows !== null) fetchData(key);
   };
 
   const saveAnnotation = async () => {
@@ -346,7 +375,7 @@ export default function Dashboard({ auth, onLogout, myDashboards = [], activeDas
       </div>
       <div style={{ flex: 1, padding: "8px 10px", overflowY: "auto" }}>
         {(() => {
-          const metaDashes    = myDashboards.filter(d => ["app","lead","ecom"].includes(d.type));
+          const metaDashes    = myDashboards.filter(d => ["app","lead","ecom","auto"].includes(d.type));
           const googleDashes  = myDashboards.filter(d => d.type === "google");
           const organicDashes = myDashboards.filter(d => d.type === "organic");
           const renderBtn = d => {
@@ -485,6 +514,29 @@ export default function Dashboard({ auth, onLogout, myDashboards = [], activeDas
               })()}
               {error && <p style={{ color: "#f87171", margin: "10px 0 0", fontSize: 12 }}>⚠️ {error}</p>}
             </div>
+
+            {activeDash?.type === "auto" && goalGroups && goalGroups.length > 0 && (
+              <div style={{ marginBottom: 16 }}>
+                <p style={{ margin: "0 0 8px", fontSize: 11, color: "#555", fontWeight: 700, letterSpacing: ".06em" }}>GOAL</p>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {goalGroups.map(g => (
+                    <button key={g.key} onClick={() => switchGoal(g.key)} style={{
+                      background: activeGoalKey === g.key ? "#1877f222" : "#2a2a3e",
+                      border: `1px solid ${activeGoalKey === g.key ? "#1877f2" : "transparent"}`,
+                      borderRadius: 8, padding: "8px 14px",
+                      color: activeGoalKey === g.key ? "#4b9cf5" : "#aaa",
+                      cursor: "pointer", fontSize: 12, fontWeight: activeGoalKey === g.key ? 700 : 400,
+                    }}>
+                      {g.label}
+                      {g.campaign_ids.length > 1 && <span style={{ marginLeft: 5, fontSize: 10, opacity: 0.6 }}>({g.campaign_ids.length})</span>}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {activeDash?.type === "auto" && !goalGroups && (
+              <p style={{ fontSize: 12, color: "#555", marginBottom: 16 }}>Detecting campaign goals…</p>
+            )}
 
             {!rows && !loading && !error && (
               <div style={{ textAlign: "center", color: "#444", marginTop: 80 }}>

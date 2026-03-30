@@ -171,7 +171,8 @@ export default function Admin({ auth, onLogout }) {
                 value={newDash.act_id} onChange={e => setNewDash(p => ({ ...p, act_id: e.target.value }))}
                 style={{ ...S.inp, flex: "2 1 180px" }} />
               <select value={newDash.type} onChange={e => setNewDash(p => ({ ...p, type: e.target.value, conversion_event: "", page_token: "" }))}
-                style={{ ...S.inp, flex: "0 0 140px" }}>
+                style={{ ...S.inp, flex: "0 0 160px" }}>
+                <option value="auto">Auto (Multi-Goal)</option>
                 <option value="app">App Install</option>
                 <option value="lead">Lead Gen</option>
                 <option value="ecom">Ecom</option>
@@ -219,16 +220,18 @@ export default function Admin({ auth, onLogout }) {
                       <td style={{ ...S.td, color: "#6366f1", fontFamily: "monospace", fontSize: 12 }}>{d.act_id}</td>
                       <td style={S.td}>
                         <span style={{
-                          background: d.type === "app" ? "#6366f122" : d.type === "lead" ? "#10b98122" : d.type === "google" ? "#4285f422" : d.type === "organic" ? "#10b98122" : "#f59e0b22",
-                          color: d.type === "app" ? "#6366f1" : d.type === "lead" ? "#10b981" : d.type === "google" ? "#4285f4" : d.type === "organic" ? "#10b981" : "#f59e0b",
+                          background: d.type === "app" ? "#6366f122" : d.type === "lead" ? "#10b98122" : d.type === "google" ? "#4285f422" : d.type === "organic" ? "#10b98122" : d.type === "auto" ? "#1877f222" : "#f59e0b22",
+                          color: d.type === "app" ? "#6366f1" : d.type === "lead" ? "#10b981" : d.type === "google" ? "#4285f4" : d.type === "organic" ? "#10b981" : d.type === "auto" ? "#4b9cf5" : "#f59e0b",
                           borderRadius: 5, padding: "2px 8px", fontSize: 11, fontWeight: 600
                         }}>
-                          {d.type === "app" ? "App" : d.type === "lead" ? "Lead Gen" : d.type === "google" ? "Google" : d.type === "organic" ? "Organic" : "Ecom"}
+                          {d.type === "app" ? "App" : d.type === "lead" ? "Lead Gen" : d.type === "google" ? "Google" : d.type === "organic" ? "Organic" : d.type === "auto" ? "Auto" : "Ecom"}
                         </span>
                       </td>
                       <td style={{ ...S.td, color: "#888", fontSize: 12 }}>
                         {d.type === "organic"
                           ? <span style={{ color: d.page_token ? "#10b981" : "#f87171", fontSize: 11, fontWeight: 600 }}>{d.page_token ? "✓ Token set" : "⚠ No token"}</span>
+                          : d.type === "auto"
+                          ? <span style={{ color: "#4b9cf5", fontSize: 11, fontWeight: 600 }}>Auto-detected</span>
                           : (d.conversion_event || "—")}
                       </td>
                       <td style={{ ...S.td, color: "#10b981" }}>{d.users?.length || 0} user{d.users?.length !== 1 ? "s" : ""}</td>
