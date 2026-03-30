@@ -348,23 +348,28 @@ function buildCampaignFilter(campaign_ids) {
 function detectGoal(adset) {
   const optGoal = adset.optimization_goal;
   const customEvent = adset.promoted_object?.custom_event_type;
+  const destType = adset.destination_type; // "WEBSITE", "APP", "MESSENGER", etc.
+  const isApp = destType === "APP" || optGoal === "APP_INSTALLS" || customEvent === "MOBILE_APP_INSTALL" || !!adset.promoted_object?.application_id;
+  const loc = isApp ? "app" : "web";
+  const locLabel = isApp ? " (App)" : " (Web)";
+
   if (optGoal === "APP_INSTALLS" || customEvent === "MOBILE_APP_INSTALL")
     return { key: "app_install", type: "app", conv_event: "app_install", label: "App Installs" };
   if (customEvent === "PURCHASE")
-    return { key: "purchase", type: "ecom", conv_event: "purchase", label: "Purchases" };
+    return { key: `purchase_${loc}`, type: "ecom", conv_event: "purchase", label: `Purchases${locLabel}` };
   if (customEvent === "ADD_TO_CART")
-    return { key: "add_to_cart", type: "ecom", conv_event: "purchase", label: "Add to Cart" };
+    return { key: `add_to_cart_${loc}`, type: "ecom", conv_event: "purchase", label: `Add to Cart${locLabel}` };
   if (customEvent === "LEAD" || optGoal === "LEAD_GENERATION")
     return { key: "lead", type: "lead", conv_event: "lead", label: "Leads" };
   if (customEvent === "COMPLETE_REGISTRATION")
-    return { key: "complete_registration", type: "lead", conv_event: "complete_registration", label: "Registrations" };
+    return { key: `complete_registration_${loc}`, type: "lead", conv_event: "complete_registration", label: `Registrations${locLabel}` };
   if (customEvent === "ADD_PAYMENT_INFO")
-    return { key: "add_payment_info", type: "lead", conv_event: "add_payment_info", label: "Add Payment Info" };
+    return { key: `add_payment_info_${loc}`, type: "lead", conv_event: "add_payment_info", label: `Add Payment Info${locLabel}` };
   if (customEvent === "SUBSCRIBE")
     return { key: "subscribe", type: "lead", conv_event: "lead", label: "Subscriptions" };
   const raw = customEvent || optGoal || "other";
   const label = raw.replace(/_/g, " ").toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
-  return { key: raw, type: "lead", conv_event: "lead", label };
+  return { key: `${raw}_${loc}`, type: "lead", conv_event: "lead", label: `${label}${locLabel}` };
 }
 
 app.get("/api/dashboards/:id/insights/campaigns", authMiddleware, async (req, res) => {
@@ -431,7 +436,7 @@ app.get("/api/dashboards/:id/goal-groups", authMiddleware, async (req, res) => {
   if (!dash) return res.status(404).json({ error: "Dashboard not found" });
   if (dash.type !== "auto") return res.json([]);
   try {
-    const url = `${META_BASE}/${dash.act_id}/adsets?fields=campaign_id,campaign_name,optimization_goal,promoted_object&limit=500&access_token=${META_TOKEN}`;
+    const url = `${META_BASE}/${dash.act_id}/adsets?fields=campaign_id,campaign_name,optimization_goal,destination_type,promoted_object&limit=500&access_token=${META_TOKEN}`;
     const adsets = await fetchAllPages(url);
     // Map each campaign to its goal (use first adset seen per campaign)
     const campaignGoals = {};
