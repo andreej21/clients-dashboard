@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate } from "react-router-dom";
+import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { useState, useEffect } from "react";
 import Login from "./Login";
 import Admin from "./Admin";
@@ -9,6 +9,7 @@ import ResetPassword from "./ResetPassword";
 import API from "./config";
 
 export default function App() {
+  const location = useLocation();
   const [auth, setAuth] = useState(() => {
     const t = localStorage.getItem("token");
     const u = localStorage.getItem("user");
@@ -31,7 +32,7 @@ export default function App() {
     setActiveDash(null);
   };
 
-  // Load dashboards once logged in
+  // Reload dashboards on login or route change (so new dashboards appear after visiting Admin)
   useEffect(() => {
     if (!auth) return;
     fetch(`${API}/my-dashboards`, {
@@ -39,7 +40,7 @@ export default function App() {
     }).then(r => r.json()).then(data => {
       setMyDashboards(Array.isArray(data) ? data : []);
     });
-  }, [auth]);
+  }, [auth, location.pathname]);
 
   // Smart router — picks the right dashboard component based on type
   const DashboardRouter = (props) => {
