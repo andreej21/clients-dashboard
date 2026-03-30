@@ -222,7 +222,8 @@ export default function Admin({ auth, onLogout }) {
                         <select value={d.type} onChange={async e => {
                           const newType = e.target.value;
                           const res = await fetch(`${API}/admin/dashboards/${d.id}`, { method: "PATCH", headers: h, body: JSON.stringify({ type: newType }) });
-                          if (res.ok) { loadDashboards(); flash("Type updated!"); } else flash("Update failed", true);
+                          const data = await res.json();
+                          if (res.ok) { loadDashboards(); flash("Type updated!"); } else { alert("Error: " + JSON.stringify(data)); flash("Update failed", true); }
                         }} style={{ background: "#13131f", color: "#ccc", border: "1px solid #2a2a3e", borderRadius: 5, padding: "3px 6px", fontSize: 12, cursor: "pointer" }}>
                           <option value="auto">Auto</option>
                           <option value="app">App</option>
