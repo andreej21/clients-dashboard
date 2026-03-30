@@ -348,28 +348,36 @@ function buildCampaignFilter(campaign_ids) {
 function detectGoal(adset) {
   const optGoal = adset.optimization_goal;
   const customEvent = adset.promoted_object?.custom_event_type;
-  const destType = adset.destination_type; // "WEBSITE", "APP", "MESSENGER", etc.
+  const destType = adset.destination_type;
   const isApp = destType === "APP" || optGoal === "APP_INSTALLS" || customEvent === "MOBILE_APP_INSTALL" || !!adset.promoted_object?.application_id;
   const loc = isApp ? "app" : "web";
   const locLabel = isApp ? " (App)" : " (Web)";
 
   if (optGoal === "APP_INSTALLS" || customEvent === "MOBILE_APP_INSTALL")
-    return { key: "app_install", type: "app", conv_event: "app_install", label: "App Installs" };
+    return { key: "app_install", type: "app", conv_event: "app_install", label: "App Installs",
+      action_types: ["omni_app_install", "mobile_app_install", "app_install"] };
   if (customEvent === "PURCHASE")
-    return { key: `purchase_${loc}`, type: "ecom", conv_event: "purchase", label: `Purchases${locLabel}` };
+    return { key: `purchase_${loc}`, type: "ecom", conv_event: "purchase", label: `Purchases${locLabel}`,
+      action_types: isApp ? ["app_custom_event.fb_mobile_purchase", "omni_purchase"] : ["purchase", "offsite_conversion.fb_pixel_purchase", "omni_purchase"] };
   if (customEvent === "ADD_TO_CART")
-    return { key: `add_to_cart_${loc}`, type: "ecom", conv_event: "purchase", label: `Add to Cart${locLabel}` };
+    return { key: `add_to_cart_${loc}`, type: "ecom", conv_event: "purchase", label: `Add to Cart${locLabel}`,
+      action_types: isApp ? ["app_custom_event.fb_mobile_add_to_cart", "omni_add_to_cart"] : ["add_to_cart", "offsite_conversion.fb_pixel_add_to_cart", "omni_add_to_cart"] };
   if (customEvent === "LEAD" || optGoal === "LEAD_GENERATION")
-    return { key: "lead", type: "lead", conv_event: "lead", label: "Leads" };
+    return { key: "lead", type: "lead", conv_event: "lead", label: "Leads",
+      action_types: ["lead", "offsite_conversion.fb_pixel_lead"] };
   if (customEvent === "COMPLETE_REGISTRATION")
-    return { key: `complete_registration_${loc}`, type: "lead", conv_event: "complete_registration", label: `Registrations${locLabel}` };
+    return { key: `complete_registration_${loc}`, type: "lead", conv_event: "complete_registration", label: `Registrations${locLabel}`,
+      action_types: isApp ? ["app_custom_event.fb_mobile_complete_registration", "omni_complete_registration"] : ["complete_registration", "offsite_conversion.fb_pixel_complete_registration", "omni_complete_registration"] };
   if (customEvent === "ADD_PAYMENT_INFO")
-    return { key: `add_payment_info_${loc}`, type: "lead", conv_event: "add_payment_info", label: `Add Payment Info${locLabel}` };
+    return { key: `add_payment_info_${loc}`, type: "lead", conv_event: "add_payment_info", label: `Add Payment Info${locLabel}`,
+      action_types: isApp ? ["app_custom_event.fb_mobile_add_payment_info", "omni_add_payment_info"] : ["add_payment_info", "offsite_conversion.fb_pixel_add_payment_info", "omni_add_payment_info"] };
   if (customEvent === "SUBSCRIBE")
-    return { key: "subscribe", type: "lead", conv_event: "lead", label: "Subscriptions" };
+    return { key: "subscribe", type: "lead", conv_event: "lead", label: "Subscriptions",
+      action_types: ["subscribe"] };
   const raw = customEvent || optGoal || "other";
   const label = raw.replace(/_/g, " ").toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
-  return { key: `${raw}_${loc}`, type: "lead", conv_event: "lead", label: `${label}${locLabel}` };
+  return { key: `${raw}_${loc}`, type: "lead", conv_event: "lead", label: `${label}${locLabel}`,
+    action_types: [raw.toLowerCase()] };
 }
 
 app.get("/api/dashboards/:id/insights/campaigns", authMiddleware, async (req, res) => {

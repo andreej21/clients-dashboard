@@ -38,8 +38,8 @@ function getTop5Sorts(type) {
   return base;
 }
 
-function parseRow(day, type, convEvent) {
-  const convTypes = type === "app" ? INSTALL_TYPES : type === "lead" ? [convEvent || "lead"] : ["purchase", "omni_purchase"];
+function parseRow(day, type, convEvent, actionTypes) {
+  const convTypes = actionTypes || (type === "app" ? INSTALL_TYPES : type === "lead" ? [convEvent || "lead"] : ["purchase", "omni_purchase"]);
   const ia  = findAction(day.actions, convTypes);
   const ca  = findAction(day.cost_per_action_type, convTypes);
   const lc  = findAction(day.actions, ["link_click", "outbound_click"]);
@@ -250,15 +250,16 @@ export default function Dashboard({ auth, onLogout, myDashboards = [], activeDas
       if (d1.error) throw new Error(`Account: ${d1.error}`);
       const type = activeGoal ? activeGoal.type : (d1.type || "app");
       const conv = activeGoal ? activeGoal.conv_event : (d1.conversion_event || "app_install");
+      const actionTypes = activeGoal?.action_types || null;
       setDashType(type); setConvEvent(conv);
-      setRows((d1.data || []).map(r => parseRow(r, type, conv)).sort((a, b) => a.date.localeCompare(b.date)));
-      setAds((d2.data || []).map(r => parseRow(r, type, conv)));
-      setCampaigns((d3.data || []).map(r => parseRow(r, type, conv)));
-      setAdsets((d4.data || []).map(r => parseRow(r, type, conv)));
+      setRows((d1.data || []).map(r => parseRow(r, type, conv, actionTypes)).sort((a, b) => a.date.localeCompare(b.date)));
+      setAds((d2.data || []).map(r => parseRow(r, type, conv, actionTypes)));
+      setCampaigns((d3.data || []).map(r => parseRow(r, type, conv, actionTypes)));
+      setAdsets((d4.data || []).map(r => parseRow(r, type, conv, actionTypes)));
       setActive("conversions");
       setSortKey(type === "ecom" ? "roas_desc" : "conversionCost_asc");
       if (compare && d5) {
-        const pRows = (d5.data || []).map(r => parseRow(r, type, conv));
+        const pRows = (d5.data || []).map(r => parseRow(r, type, conv, actionTypes));
         setPrevTotals(computeTotals(pRows)); setPrevRows(pRows);
       }
     } catch (e) { setError(e.message); }
