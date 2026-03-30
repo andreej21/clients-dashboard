@@ -219,13 +219,18 @@ export default function Admin({ auth, onLogout }) {
                       <td style={{ ...S.td, fontWeight: 600 }}>{d.name}</td>
                       <td style={{ ...S.td, color: "#6366f1", fontFamily: "monospace", fontSize: 12 }}>{d.act_id}</td>
                       <td style={S.td}>
-                        <span style={{
-                          background: d.type === "app" ? "#6366f122" : d.type === "lead" ? "#10b98122" : d.type === "google" ? "#4285f422" : d.type === "organic" ? "#10b98122" : d.type === "auto" ? "#1877f222" : "#f59e0b22",
-                          color: d.type === "app" ? "#6366f1" : d.type === "lead" ? "#10b981" : d.type === "google" ? "#4285f4" : d.type === "organic" ? "#10b981" : d.type === "auto" ? "#4b9cf5" : "#f59e0b",
-                          borderRadius: 5, padding: "2px 8px", fontSize: 11, fontWeight: 600
-                        }}>
-                          {d.type === "app" ? "App" : d.type === "lead" ? "Lead Gen" : d.type === "google" ? "Google" : d.type === "organic" ? "Organic" : d.type === "auto" ? "Auto" : "Ecom"}
-                        </span>
+                        <select value={d.type} onChange={async e => {
+                          const newType = e.target.value;
+                          const res = await fetch(`${API}/admin/dashboards/${d.id}`, { method: "PATCH", headers: h, body: JSON.stringify({ type: newType }) });
+                          if (res.ok) { loadDashboards(); flash("Type updated!"); } else flash("Update failed", true);
+                        }} style={{ background: "#13131f", color: "#ccc", border: "1px solid #2a2a3e", borderRadius: 5, padding: "3px 6px", fontSize: 12, cursor: "pointer" }}>
+                          <option value="auto">Auto</option>
+                          <option value="app">App</option>
+                          <option value="lead">Lead Gen</option>
+                          <option value="ecom">Ecom</option>
+                          <option value="google">Google</option>
+                          <option value="organic">Organic</option>
+                        </select>
                       </td>
                       <td style={{ ...S.td, color: "#888", fontSize: 12 }}>
                         {d.type === "organic"
