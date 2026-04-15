@@ -51,7 +51,7 @@ const KW_SORTS = [
   { label: "Highest Spend",  key: "spend",  dir: "desc", filter: () => true },
 ];
 
-export default function GoogleDashboard({ auth, onLogout, myDashboards, activeDash, setActiveDash }) {
+export default function GoogleDashboard({ auth, onLogout, myDashboards, folders = [], activeDash, setActiveDash }) {
   const nav = useNavigate();
   const { id } = useParams();
   const [tab, setTab]             = useState("account");
@@ -64,6 +64,10 @@ export default function GoogleDashboard({ auth, onLogout, myDashboards, activeDa
   const [error, setError]         = useState("");
   const [activeMetric, setActive] = useState("spend");
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [collapsedFolders, setCollapsedFolders] = useState(() => {
+    try { return new Set(JSON.parse(localStorage.getItem("collapsedFolders") || "[]")); }
+    catch { return new Set(); }
+  });
   const [compare, setCompare]     = useState(false);
   const [prevTotals, setPrevTotals] = useState(null);
   const [prevRows, setPrevRows]     = useState(null);
@@ -193,9 +197,14 @@ export default function GoogleDashboard({ auth, onLogout, myDashboards, activeDa
       </div>
       <div style={{ flex: 1, padding: "8px 10px", overflowY: "auto" }}>
         {(() => {
-          const metaDashes    = myDashboards.filter(d => ["app","lead","ecom"].includes(d.type));
-          const googleDashes  = myDashboards.filter(d => d.type === "google");
-          const organicDashes = myDashboards.filter(d => d.type === "organic");
+          const toggleFolder = key => {
+            setCollapsedFolders(prev => {
+              const next = new Set(prev);
+              next.has(key) ? next.delete(key) : next.add(key);
+              localStorage.setItem("collapsedFolders", JSON.stringify([...next]));
+              return next;
+            });
+          };
           const renderBtn = d => {
             const badge = typeBadge[d.type] || typeBadge.app;
             return (
@@ -211,6 +220,29 @@ export default function GoogleDashboard({ auth, onLogout, myDashboards, activeDa
               </button>
             );
           };
+          const renderFolder = (key, label, dashes) => {
+            if (!dashes.length) return null;
+            const isCollapsed = collapsedFolders.has(key);
+            return (
+              <div key={key} style={{ marginBottom: 4 }}>
+                <button onClick={() => toggleFolder(key)} style={{ width: "100%", background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 5, padding: "5px 6px 3px" }}>
+                  <span style={{ color: "#444", fontSize: 9 }}>{isCollapsed ? "▶" : "▼"}</span>
+                  <span style={{ color: "#555", fontSize: 10, fontWeight: 700, letterSpacing: ".07em", textTransform: "uppercase" }}>{label}</span>
+                  <span style={{ color: "#333", fontSize: 10, marginLeft: "auto" }}>{dashes.length}</span>
+                </button>
+                {!isCollapsed && dashes.map(renderBtn)}
+              </div>
+            );
+          };
+          if (folders.length > 0) {
+            return (<>
+              {folders.map(f => renderFolder(f.id, f.name, myDashboards.filter(d => d.folder_id === f.id)))}
+              {renderFolder("__other", "Other", myDashboards.filter(d => !d.folder_id))}
+            </>);
+          }
+          const metaDashes    = myDashboards.filter(d => ["app","lead","ecom","auto"].includes(d.type));
+          const googleDashes  = myDashboards.filter(d => d.type === "google");
+          const organicDashes = myDashboards.filter(d => d.type === "organic");
           return (<>
             {(metaDashes.length > 0 || googleDashes.length > 0) && <>
               <p style={{ color: "#555", fontSize: 10, fontWeight: 700, letterSpacing: ".08em", padding: "4px 6px 2px", margin: "0 0 2px" }}>PAID</p>
