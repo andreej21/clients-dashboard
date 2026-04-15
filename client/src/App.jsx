@@ -16,6 +16,7 @@ export default function App() {
     return t && u ? { token: t, user: JSON.parse(u) } : null;
   });
   const [myDashboards, setMyDashboards] = useState([]);
+  const [folders, setFolders] = useState([]);
   const [activeDash, setActiveDash] = useState(null);
 
   const login = (token, user) => {
@@ -32,13 +33,15 @@ export default function App() {
     setActiveDash(null);
   };
 
-  // Reload dashboards on login or route change (so new dashboards appear after visiting Admin)
+  // Reload dashboards + folders on login or route change
   useEffect(() => {
     if (!auth) return;
-    fetch(`${API}/my-dashboards`, {
-      headers: { Authorization: `Bearer ${auth.token}` }
-    }).then(r => r.json()).then(data => {
+    const h = { Authorization: `Bearer ${auth.token}` };
+    fetch(`${API}/my-dashboards`, { headers: h }).then(r => r.json()).then(data => {
       setMyDashboards(Array.isArray(data) ? data : []);
+    });
+    fetch(`${API}/folders`, { headers: h }).then(r => r.json()).then(data => {
+      setFolders(Array.isArray(data) ? data : []);
     });
   }, [auth, location.pathname]);
 
@@ -46,12 +49,12 @@ export default function App() {
   const DashboardRouter = (props) => {
     const type = activeDash?.type;
     if (type === "google") {
-      return <GoogleDashboard {...props} myDashboards={myDashboards} activeDash={activeDash} setActiveDash={setActiveDash} />;
+      return <GoogleDashboard {...props} myDashboards={myDashboards} folders={folders} activeDash={activeDash} setActiveDash={setActiveDash} />;
     }
     if (type === "organic") {
-      return <OrganicDashboard {...props} myDashboards={myDashboards} activeDash={activeDash} setActiveDash={setActiveDash} />;
+      return <OrganicDashboard {...props} myDashboards={myDashboards} folders={folders} activeDash={activeDash} setActiveDash={setActiveDash} />;
     }
-    return <Dashboard {...props} myDashboards={myDashboards} activeDash={activeDash} setActiveDash={setActiveDash} />;
+    return <Dashboard {...props} myDashboards={myDashboards} folders={folders} activeDash={activeDash} setActiveDash={setActiveDash} />;
   };
 
   return (

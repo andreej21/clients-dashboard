@@ -27,13 +27,16 @@ export default function Admin({ auth, onLogout }) {
   const [tokenModal, setTokenModal] = useState(null);
   const [newToken, setNewToken] = useState("");
   const [tokenTab, setTokenTab] = useState("oauth"); // "oauth" | "manual"
+  const [folders, setFolders] = useState([]);
+  const [newFolderName, setNewFolderName] = useState("");
+  const [renamingFolder, setRenamingFolder] = useState(null); // { id, name }
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
   const h = authHeaders(auth.token);
 
   useEffect(() => {
-    loadDashboards(); loadUsers();
+    loadDashboards(); loadUsers(); loadFolders();
     const p = new URLSearchParams(window.location.search);
     if (p.get("fb_connected")) { flash("Facebook Page connected successfully! ✅"); window.history.replaceState({}, "", "/admin"); }
     if (p.get("fb_error"))     { flash(decodeURIComponent(p.get("fb_error")), true); window.history.replaceState({}, "", "/admin"); }
@@ -47,6 +50,40 @@ export default function Admin({ auth, onLogout }) {
   const loadUsers = async () => {
     const res = await fetch(`${API}/admin/users`, { headers: h });
     setUsers(await res.json());
+  };
+
+  const loadFolders = async () => {
+    const res = await fetch(`${API}/folders`, { headers: h });
+    setFolders(await res.json());
+  };
+
+  const createFolder = async () => {
+    if (!newFolderName.trim()) return;
+    const res = await fetch(`${API}/admin/folders`, { method: "POST", headers: h, body: JSON.stringify({ name: newFolderName.trim() }) });
+    if (res.ok) { setNewFolderName(""); loadFolders(); flash("Folder created!"); }
+    else flash("Failed to create folder", true);
+  };
+
+  const renameFolder = async () => {
+    if (!renamingFolder?.name?.trim()) return;
+    const res = await fetch(`${API}/admin/folders/${renamingFolder.id}`, { method: "PATCH", headers: h, body: JSON.stringify({ name: renamingFolder.name.trim() }) });
+    if (res.ok) { setRenamingFolder(null); loadFolders(); flash("Folder renamed!"); }
+    else flash("Failed to rename folder", true);
+  };
+
+  const deleteFolder = async (id) => {
+    if (!confirm("Delete this folder? Dashboards inside it will be moved to 'Other'.")) return;
+    await fetch(`${API}/admin/folders/${id}`, { method: "DELETE", headers: h });
+    loadFolders(); loadDashboards(); flash("Folder deleted");
+  };
+
+  const moveDashToFolder = async (dashId, folderId) => {
+    const res = await fetch(`${API}/admin/dashboards/${dashId}`, {
+      method: "PATCH", headers: h,
+      body: JSON.stringify({ folder_id: folderId ? parseInt(folderId) : null }),
+    });
+    if (res.ok) loadDashboards();
+    else flash("Failed to update folder", true);
   };
 
   const loadAccessList = async (dashId) => {
@@ -161,6 +198,45 @@ export default function Admin({ auth, onLogout }) {
 
         {/* ── DASHBOARDS TAB ── */}
         {tab === "dashboards" && (<>
+
+          {/* Folder manager */}
+          <div style={{ ...S.card, padding: 20, marginBottom: 20 }}>
+            <p style={{ margin: "0 0 14px", fontWeight: 700, fontSize: 14 }}>📁 Folders</p>
+            <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+              <input placeholder="New folder name…" value={newFolderName}
+                onChange={e => setNewFolderName(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && createFolder()}
+                style={{ ...S.inp, flex: "1 1 180px" }} />
+              <button onClick={createFolder} style={{ ...S.btn("#6366f1"), flexShrink: 0 }}>+ Create Folder</button>
+            </div>
+            {folders.length === 0
+              ? <p style={{ color: "#555", fontSize: 13, margin: 0 }}>No folders yet — create one to organise the sidebar.</p>
+              : <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  {folders.map(f => (
+                    <div key={f.id} style={{ background: "#13131f", border: "1px solid #2a2a3e", borderRadius: 8, padding: "8px 12px", display: "flex", alignItems: "center", gap: 8 }}>
+                      {renamingFolder?.id === f.id ? (
+                        <>
+                          <input value={renamingFolder.name} autoFocus
+                            onChange={e => setRenamingFolder(r => ({ ...r, name: e.target.value }))}
+                            onKeyDown={e => { if (e.key === "Enter") renameFolder(); if (e.key === "Escape") setRenamingFolder(null); }}
+                            style={{ ...S.inp, padding: "4px 8px", fontSize: 12, width: 120 }} />
+                          <button onClick={renameFolder} style={{ ...S.btn("#10b981"), padding: "4px 8px", fontSize: 11 }}>Save</button>
+                          <button onClick={() => setRenamingFolder(null)} style={{ background: "none", border: "none", color: "#555", cursor: "pointer", fontSize: 13 }}>✕</button>
+                        </>
+                      ) : (
+                        <>
+                          <span style={{ fontSize: 13, color: "#ccc" }}>{f.name}</span>
+                          <span style={{ fontSize: 11, color: "#444" }}>({dashboards.filter(d => d.folder_id === f.id).length})</span>
+                          <button onClick={() => setRenamingFolder({ id: f.id, name: f.name })} style={{ background: "none", border: "none", color: "#6366f1", cursor: "pointer", fontSize: 12, padding: "0 2px" }}>✏️</button>
+                          <button onClick={() => deleteFolder(f.id)} style={{ background: "none", border: "none", color: "#f87171", cursor: "pointer", fontSize: 12, padding: "0 2px" }}>🗑</button>
+                        </>
+                      )}
+                    </div>
+                  ))}
+                </div>
+            }
+          </div>
+
           <div style={{ ...S.card, padding: 20, marginBottom: 20 }}>
             <p style={{ margin: "0 0 14px", fontWeight: 700, fontSize: 14 }}>Add New Dashboard</p>
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
@@ -206,6 +282,7 @@ export default function Admin({ auth, onLogout }) {
                   <th style={S.th}>Client</th>
                   <th style={S.th}>Act ID</th>
                   <th style={S.th}>Type</th>
+                  <th style={S.th}>Folder</th>
                   <th style={S.th}>Conv. Event</th>
                   <th style={S.th}>Users</th>
                   <th style={S.th}>Actions</th>
@@ -231,6 +308,13 @@ export default function Admin({ auth, onLogout }) {
                           <option value="ecom">Ecom</option>
                           <option value="google">Google</option>
                           <option value="organic">Organic</option>
+                        </select>
+                      </td>
+                      <td style={S.td}>
+                        <select value={d.folder_id || ""} onChange={e => moveDashToFolder(d.id, e.target.value)}
+                          style={{ background: "#13131f", color: d.folder_id ? "#ccc" : "#555", border: "1px solid #2a2a3e", borderRadius: 5, padding: "3px 6px", fontSize: 12, cursor: "pointer", maxWidth: 130 }}>
+                          <option value="">— No folder —</option>
+                          {folders.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
                         </select>
                       </td>
                       <td style={{ ...S.td, color: "#888", fontSize: 12 }}>

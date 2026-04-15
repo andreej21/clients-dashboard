@@ -203,7 +203,7 @@ app.post("/api/admin/dashboards", authMiddleware, adminOnly, async (req, res) =>
 });
 
 app.patch("/api/admin/dashboards/:id", authMiddleware, adminOnly, async (req, res) => {
-  const { name, act_id, type, conversion_event, page_token } = req.body;
+  const { name, act_id, type, conversion_event, page_token, folder_id } = req.body;
   const updates = {};
   if (name) updates.name = name;
   if (act_id) {
@@ -213,6 +213,7 @@ app.patch("/api/admin/dashboards/:id", authMiddleware, adminOnly, async (req, re
   if (type) updates.type = type;
   if (conversion_event) updates.conversion_event = conversion_event;
   if (page_token !== undefined) updates.page_token = page_token || null;
+  if (folder_id !== undefined) updates.folder_id = folder_id || null;
   const { data, error } = await supabase.from("dashboards").update(updates).eq("id", req.params.id).select().single();
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
@@ -257,7 +258,7 @@ app.delete("/api/dashboards/:id/access/:userId", authMiddleware, async (req, res
 // ── Client: My Dashboards ───────────────────────────────
 
 app.get("/api/my-dashboards", authMiddleware, async (req, res) => {
-  const safeFields = "id, name, act_id, type, conversion_event, created_at";
+  const safeFields = "id, name, act_id, type, conversion_event, folder_id, created_at";
   if (req.user.role === "admin") {
     const { data } = await supabase.from("dashboards").select(safeFields).order("name");
     return res.json(data || []);
@@ -265,6 +266,37 @@ app.get("/api/my-dashboards", authMiddleware, async (req, res) => {
   const { data } = await supabase.from("dashboard_access")
     .select(`role, dashboards(${safeFields})`).eq("user_id", req.user.id);
   res.json(data?.map(d => ({ ...d.dashboards, access_role: d.role })) || []);
+});
+
+// ── Folders ─────────────────────────────────────────────
+
+app.get("/api/folders", authMiddleware, async (req, res) => {
+  const { data } = await supabase.from("folders").select("*").order("position").order("name");
+  res.json(data || []);
+});
+
+app.post("/api/admin/folders", authMiddleware, adminOnly, async (req, res) => {
+  const { name } = req.body;
+  if (!name?.trim()) return res.status(400).json({ error: "Name required" });
+  const { data, error } = await supabase.from("folders").insert({ name: name.trim() }).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+app.patch("/api/admin/folders/:id", authMiddleware, adminOnly, async (req, res) => {
+  const { name, position } = req.body;
+  const updates = {};
+  if (name !== undefined) updates.name = name.trim();
+  if (position !== undefined) updates.position = position;
+  const { data, error } = await supabase.from("folders").update(updates).eq("id", req.params.id).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+app.delete("/api/admin/folders/:id", authMiddleware, adminOnly, async (req, res) => {
+  await supabase.from("dashboards").update({ folder_id: null }).eq("folder_id", parseInt(req.params.id));
+  await supabase.from("folders").delete().eq("id", req.params.id);
+  res.json({ success: true });
 });
 
 app.get("/api/dashboards/:id/access", authMiddleware, async (req, res) => {
