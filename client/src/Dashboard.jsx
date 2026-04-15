@@ -379,6 +379,11 @@ export default function Dashboard({ auth, onLogout, myDashboards = [], folders =
         <button onClick={() => setSidebarOpen(false)} style={{ display: "none", background: "none", border: "none", color: "#555", fontSize: 20, cursor: "pointer", padding: 4, lineHeight: 1 }} className="sidebar-close">✕</button>
       </div>
       <div style={{ flex: 1, padding: "8px 10px", overflowY: "auto" }}>
+        {folders.length > 0 && (
+          <p style={{ fontSize: 9, color: "#333", padding: "2px 6px", margin: "0 0 4px", fontFamily: "monospace" }}>
+            {folders.length}f · {myDashboards.filter(d => d.folder_id).length}/{myDashboards.length} assigned
+          </p>
+        )}
         {(() => {
           const toggleFolder = key => {
             setCollapsedFolders(prev => {
