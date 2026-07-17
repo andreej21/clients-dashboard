@@ -420,23 +420,26 @@ function mapCreative(ad) {
   // Full-res, advertiser-uploaded images (only the specific sub-fields — requesting
   // the whole object_story_spec in bulk trips Meta's "reduce the amount of data" limit):
   const videoCover = spec.video_data?.image_url;  // video ad cover image (usually 1080px)
+  const videoId    = spec.video_data?.video_id || null;
   const linkImage  = spec.link_data?.picture;     // image/link ad picture
-  const thumbnail_url =
+  const hiRes =
     c.image_url ||        // image ads — full res
     videoCover ||         // video ads — full-res cover
     linkImage ||          // link ads
-    c.thumbnail_url ||    // last-resort low-res preview
     null;
+  const thumbnail_url = hiRes || c.thumbnail_url || null;  // last-resort low-res preview
   // Link to the live Facebook post (shows the full ad + comments)
   let permalink = null;
   if (c.effective_object_story_id && c.effective_object_story_id.includes("_")) {
     const [pageId, postId] = c.effective_object_story_id.split("_");
     if (pageId && postId) permalink = `https://www.facebook.com/${pageId}/posts/${postId}`;
   }
-  return { id: ad.id, thumbnail_url, permalink, landing: null };
+  // needsHd → this is a video with no advertiser cover, so only a low-res auto-frame
+  // is available; the client can upgrade it lazily via /video-thumb/:videoId
+  return { id: ad.id, thumbnail_url, permalink, video_id: videoId, needsHd: !hiRes && !!videoId };
 }
 
-const CREATIVE_FIELDS = "id,name,creative{id,thumbnail_url,image_url,effective_object_story_id,object_story_spec{video_data{image_url},link_data{picture}}}";
+const CREATIVE_FIELDS = "id,name,creative{id,thumbnail_url,image_url,effective_object_story_id,object_story_spec{video_data{image_url,video_id},link_data{picture}}}";
 
 // Group an account's campaigns by detected goal (used by authed + public routes)
 function computeGoalGroups(adsets) {
@@ -525,6 +528,21 @@ app.get("/api/dashboards/:id/ad-creatives", authMiddleware, async (req, res) => 
     if (withThumb === 0 && ads.length) debug.sampleCreative = ads[0].creative || "no creative field on ad";
     res.json({ data, debug });
   } catch (e) { res.json({ data: [], debug: { error: e.message } }); }
+});
+
+// Higher-res frame for a video ad that has no advertiser cover image. Called lazily per card.
+app.get("/api/dashboards/:id/video-thumb/:videoId", authMiddleware, async (req, res) => {
+  const dashId = parseInt(req.params.id);
+  if (!await checkDashboardAccess(req, res, dashId)) return;
+  try {
+    const url = `${META_BASE}/${req.params.videoId}?fields=thumbnails{uri,width,is_preferred}&access_token=${META_TOKEN}`;
+    const r = await fetch(url);
+    const j = await r.json();
+    if (j.error) return res.json({ url: null });
+    const thumbs = (j.thumbnails?.data || []).slice();
+    const best = thumbs.find(t => t.is_preferred) || thumbs.sort((a, b) => (b.width || 0) - (a.width || 0))[0];
+    res.json({ url: best?.uri || null });
+  } catch { res.json({ url: null }); }
 });
 
 app.get("/api/dashboards/:id/goal-groups", authMiddleware, async (req, res) => {

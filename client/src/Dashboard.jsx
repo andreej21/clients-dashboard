@@ -387,6 +387,15 @@ export default function Dashboard({ auth, onLogout, myDashboards = [], folders =
     setTimeout(() => setCopiedId(c => (c === s.id ? null : c)), 1600);
   };
 
+  const hdFetcher = useCallback(async (videoId) => {
+    if (!activeDash) return null;
+    try {
+      const r = await fetch(`${API}/dashboards/${activeDash.id}/video-thumb/${videoId}`, { headers: authHeaders(auth.token) });
+      const j = await r.json();
+      return j.url || null;
+    } catch { return null; }
+  }, [activeDash?.id, auth.token]);
+
   const metrics   = getMetrics(dashType, convEvent);
   const top5Sorts = getTop5Sorts(dashType);
   const totals    = rows ? computeTotals(rows) : null;
@@ -844,7 +853,7 @@ export default function Dashboard({ auth, onLogout, myDashboards = [], folders =
                 : <div style={{ textAlign: "center", color: "#555", marginTop: 40, fontSize: 14 }}>No ad data returned</div>
             )}
             {tab === "creative" && rows && (
-              <CreativeCockpit ads={ads} creatives={creatives} dashType={dashType} debug={creativesDebug} />
+              <CreativeCockpit ads={ads} creatives={creatives} dashType={dashType} debug={creativesDebug} hdFetcher={hdFetcher} />
             )}
 
             {tab === "account" && totals && (<>
@@ -1166,16 +1175,30 @@ function CockpitMetric({ label, value, color }) {
   );
 }
 
-// Thumbnail that falls back to a placeholder if the src is missing or fails to load
-function CreativeThumb({ src, alt }) {
+// Thumbnail with lazy loading, placeholder fallback, and optional HD upgrade for
+// videos whose only preview is a low-res auto-frame (needsHd).
+function CreativeThumb({ creative, alt, hdFetcher }) {
   const [broken, setBroken] = useState(false);
+  const [hd, setHd] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    if (creative?.needsHd && creative?.video_id && hdFetcher) {
+      hdFetcher(creative.video_id).then(url => { if (!cancelled && url) setHd(url); });
+    }
+    return () => { cancelled = true; };
+  }, [creative?.video_id, creative?.needsHd, hdFetcher]);
+  const src = hd || creative?.thumbnail_url;
   if (!src || broken) return <span style={{ fontSize: 40, opacity: 0.25 }}>🖼️</span>;
-  return <img src={src} alt={alt} referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={() => setBroken(true)} />;
+  return <img src={src} alt={alt} loading="lazy" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={() => setBroken(true)} />;
 }
 
-export function CreativeCockpit({ ads, creatives, dashType, debug }) {
+const COCKPIT_PER_PAGE = 12;
+
+export function CreativeCockpit({ ads, creatives, dashType, debug, hdFetcher }) {
   const isEcom = dashType === "ecom";
   const [sortKey, setSortKey] = useState(isEcom ? "roas_desc" : "spend_desc");
+  const [page, setPage] = useState(0);
+  useEffect(() => { setPage(0); }, [sortKey]);
   const list = (ads || []).filter(a => a.spend > 0);
 
   // Benchmarks used to award badges
@@ -1209,6 +1232,9 @@ export function CreativeCockpit({ ads, creatives, dashType, debug }) {
     if (dir === "asc") { const v = r => (!r[k] || r[k] === 0) ? Infinity : r[k]; return v(a) - v(b); }
     return (b[k] || 0) - (a[k] || 0);
   });
+  const pageCount = Math.max(1, Math.ceil(sorted.length / COCKPIT_PER_PAGE));
+  const safePage = Math.min(page, pageCount - 1);
+  const shown = sorted.slice(safePage * COCKPIT_PER_PAGE, safePage * COCKPIT_PER_PAGE + COCKPIT_PER_PAGE);
 
   if (!list.length) return <div style={{ textAlign: "center", color: "#555", marginTop: 40, fontSize: 14 }}>No ads with spend in this period</div>;
 
@@ -1238,13 +1264,13 @@ export function CreativeCockpit({ ads, creatives, dashType, debug }) {
         </div>
       )}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px,1fr))", gap: 14 }}>
-        {sorted.map((a, i) => {
+        {shown.map((a, i) => {
           const cr = creatives?.[a.id];
           const badge = badgeFor(a);
           return (
             <div key={a.id || i} style={{ background: "#1e1e2e", border: `1px solid ${badge ? badge.color + "66" : "#2a2a3e"}`, borderRadius: 12, overflow: "hidden", display: "flex", flexDirection: "column" }}>
               <div style={{ position: "relative", background: "#13131f", aspectRatio: "1 / 1", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <CreativeThumb src={cr?.thumbnail_url} alt={a.name} />
+                <CreativeThumb creative={cr} alt={a.name} hdFetcher={hdFetcher} />
                 {badge && <span style={{ position: "absolute", top: 8, left: 8, fontSize: 10, fontWeight: 700, color: badge.color, background: "#000000cc", borderRadius: 6, padding: "3px 8px" }}>{badge.label}</span>}
               </div>
               <div style={{ padding: "10px 12px", flex: 1, display: "flex", flexDirection: "column" }}>
@@ -1266,6 +1292,15 @@ export function CreativeCockpit({ ads, creatives, dashType, debug }) {
           );
         })}
       </div>
+      {pageCount > 1 && (
+        <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 14, marginTop: 18 }}>
+          <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={safePage === 0}
+            style={{ ...S.btn(safePage === 0 ? "#1a1a2e" : "#2a2a3e", safePage === 0 ? "#444" : "#ddd"), cursor: safePage === 0 ? "default" : "pointer" }}>← Prev</button>
+          <span style={{ fontSize: 12, color: "#888" }}>Page {safePage + 1} of {pageCount} · {sorted.length} ads</span>
+          <button onClick={() => setPage(p => Math.min(pageCount - 1, p + 1))} disabled={safePage >= pageCount - 1}
+            style={{ ...S.btn(safePage >= pageCount - 1 ? "#1a1a2e" : "#2a2a3e", safePage >= pageCount - 1 ? "#444" : "#ddd"), cursor: safePage >= pageCount - 1 ? "default" : "pointer" }}>Next →</button>
+        </div>
+      )}
     </div>
   );
 }
