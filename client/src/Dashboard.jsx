@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import spLogo from "./assets/sp-logo.png";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine } from "recharts";
@@ -228,7 +228,8 @@ export default function Dashboard({ auth, onLogout, myDashboards = [], folders =
   const defStart = new Date(defEnd); defStart.setDate(defStart.getDate() - 6);
   const [startDate, setStartDate] = useState(toYMD(defStart));
   const [endDate,   setEndDate]   = useState(toYMD(defEnd));
-  const [activePreset, setActivePreset] = useState(7);
+  const [activePreset, setActivePreset] = useState("7d");
+  const autoFetchRef = useRef(false);
 
   const h = authHeaders(auth.token);
 
@@ -285,16 +286,43 @@ export default function Dashboard({ auth, onLogout, myDashboards = [], folders =
       .catch(() => setGoalGroups([]));
   }, [activeDash?.id]);
 
-  const applyPreset = days => {
-    const e = new Date(); e.setDate(e.getDate() - 1);
-    const s = new Date(e);
-    if (days > 1) s.setDate(s.getDate() - (days - 1));
-    setStartDate(toYMD(s)); setEndDate(toYMD(e));
-    setActivePreset(days);
+  const PRESETS = [
+    { key: "yesterday", label: "Yesterday" },
+    { key: "7d",  label: "Last 7d" },
+    { key: "14d", label: "Last 14d" },
+    { key: "30d", label: "Last 30d" },
+    { key: "90d", label: "Last 90d" },
+    { key: "tmonth", label: "This month" },
+    { key: "lmonth", label: "Last month" },
+    { key: "max", label: "Maximum" },
+  ];
+  const rangeFor = key => {
+    const e = new Date(); e.setDate(e.getDate() - 1);   // yesterday (Meta data lags a day)
+    const now = new Date();
+    const mk = (s, en) => [toYMD(s), toYMD(en)];
+    const back = n => { const s = new Date(e); s.setDate(s.getDate() - n); return s; };
+    switch (key) {
+      case "yesterday": return mk(e, e);
+      case "7d":  return mk(back(6), e);
+      case "14d": return mk(back(13), e);
+      case "30d": return mk(back(29), e);
+      case "90d": return mk(back(89), e);
+      case "tmonth": { const s = new Date(now.getFullYear(), now.getMonth(), 1);     return mk(s, e < s ? s : e); }
+      case "lmonth": { const s = new Date(now.getFullYear(), now.getMonth() - 1, 1); const en = new Date(now.getFullYear(), now.getMonth(), 0); return mk(s, en); }
+      case "max": { const s = new Date(e); s.setMonth(s.getMonth() - 36); return mk(s, e); }
+      default: return mk(back(6), e);
+    }
+  };
+  const applyPreset = key => {
+    const [s, en] = rangeFor(key);
+    setStartDate(s); setEndDate(en); setActivePreset(key);
+    fetchData(undefined, { since: s, until: en });
   };
 
-  const fetchData = useCallback(async (goalKeyOverride) => {
+  const fetchData = useCallback(async (goalKeyOverride, dateOverride) => {
     if (!activeDash) return;
+    const since = dateOverride?.since ?? startDate;
+    const until = dateOverride?.until ?? endDate;
     setLoading(true); setError("");
     setRows(null); setAds(null); setCampaigns(null); setAdsets(null); setCreatives(null); setStructure(null);
     setPrevTotals(null); setPrevRows(null);
@@ -320,9 +348,9 @@ export default function Dashboard({ auth, onLogout, myDashboards = [], folders =
       const activeGoal = goalGroups?.find(g => g.key === goalKey);
       const goalFilter = activeGoal?.campaign_ids?.length
         ? `&campaign_ids=${activeGoal.campaign_ids.join(",")}` : "";
-      const params = `since=${startDate}&until=${endDate}${goalFilter}`;
-      const dayDiff = Math.round((new Date(endDate) - new Date(startDate)) / 86400000) + 1;
-      const prevEnd = new Date(startDate); prevEnd.setDate(prevEnd.getDate() - 1);
+      const params = `since=${since}&until=${until}${goalFilter}`;
+      const dayDiff = Math.round((new Date(until) - new Date(since)) / 86400000) + 1;
+      const prevEnd = new Date(since); prevEnd.setDate(prevEnd.getDate() - 1);
       const prevStart = new Date(prevEnd); prevStart.setDate(prevStart.getDate() - (dayDiff - 1));
       const prevParams = `since=${toYMD(prevStart)}&until=${toYMD(prevEnd)}${goalFilter}`;
       const fetches = [
@@ -352,6 +380,16 @@ export default function Dashboard({ auth, onLogout, myDashboards = [], folders =
     } catch (e) { setError(e.message); }
     setLoading(false);
   }, [activeDash, startDate, endDate, compare, activeGoalKey, goalGroups]);
+
+  // Auto-fetch when a dashboard is opened — reset the guard on navigation,
+  // then fetch once the dashboard (and its goal groups, for "auto") are ready.
+  useEffect(() => { autoFetchRef.current = false; }, [id]);
+  useEffect(() => {
+    if (!activeDash || autoFetchRef.current) return;
+    if (activeDash.type === "auto" && goalGroups === null) return;  // wait for goals to resolve
+    autoFetchRef.current = true;
+    fetchData();
+  }, [activeDash?.id, goalGroups, activeGoalKey, fetchData]);
 
   const switchDash = dash => {
     setActiveDash(dash); setRows(null); setAds(null); setCampaigns(null); setAdsets(null);
@@ -749,15 +787,15 @@ export default function Dashboard({ auth, onLogout, myDashboards = [], folders =
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
                 <div style={{ minWidth: 130, flex: "1 1 130px" }}>
                   <p style={{ margin: "0 0 5px", fontSize: 11, color: "#888" }}>START DATE</p>
-                  <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} style={{ ...S.inp, width: "100%" }} />
+                  <input type="date" value={startDate} onChange={e => { setStartDate(e.target.value); setActivePreset("custom"); }} style={{ ...S.inp, width: "100%" }} />
                 </div>
                 <div style={{ minWidth: 130, flex: "1 1 130px" }}>
                   <p style={{ margin: "0 0 5px", fontSize: 11, color: "#888" }}>END DATE</p>
-                  <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} style={{ ...S.inp, width: "100%" }} />
+                  <input type="date" value={endDate} onChange={e => { setEndDate(e.target.value); setActivePreset("custom"); }} style={{ ...S.inp, width: "100%" }} />
                 </div>
                 <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-                  {[{ label: "Yesterday", d: 1 }, { label: "7d", d: 7 }, { label: "14d", d: 14 }, { label: "30d", d: 30 }].map(({ label, d }) => (
-                    <button key={d} onClick={() => applyPreset(d)} style={{ ...S.btn(activePreset === d ? "#6c63ff" : "#2a2a3e", activePreset === d ? "#fff" : "#aaa"), border: `1px solid ${activePreset === d ? "#6c63ff" : "transparent"}` }}>{label}</button>
+                  {PRESETS.map(p => (
+                    <button key={p.key} onClick={() => applyPreset(p.key)} style={{ ...S.btn(activePreset === p.key ? "#6c63ff" : "#2a2a3e", activePreset === p.key ? "#fff" : "#aaa"), border: `1px solid ${activePreset === p.key ? "#6c63ff" : "transparent"}` }}>{p.label}</button>
                   ))}
                   <button onClick={() => setCompare(c => !c)} style={{
                     ...S.btn(compare ? "#f59e0b22" : "#2a2a3e", compare ? "#f59e0b" : "#aaa"),
@@ -771,8 +809,8 @@ export default function Dashboard({ auth, onLogout, myDashboards = [], folders =
                   }}>
                     {forecast ? "🔮 Forecasting" : "Forecast"}
                   </button>
-                  <button onClick={fetchData} disabled={loading || !activeDash} style={{ ...S.btn("#6366f1", "#fff"), opacity: loading ? 0.6 : 1, fontSize: 13 }}>
-                    {loading ? "Loading…" : "Fetch Data"}
+                  <button onClick={() => fetchData()} disabled={loading || !activeDash} style={{ ...S.btn("#6366f1", "#fff"), opacity: loading ? 0.6 : 1, fontSize: 13 }}>
+                    {loading ? "Loading…" : "↻ Refresh"}
                   </button>
                   {rows && <>
                     <button onClick={() => exportCSV(rows, activeDash?.name, metrics)} style={S.btn("#052e16", "#10b981")}>↓ CSV</button>
@@ -815,7 +853,7 @@ export default function Dashboard({ auth, onLogout, myDashboards = [], folders =
             {!rows && !loading && !error && (
               <div style={{ textAlign: "center", color: "#444", marginTop: 80 }}>
                 <div style={{ fontSize: 52 }}>📊</div>
-                <p style={{ marginTop: 12, fontSize: 14 }}>Pick a date range and hit <strong style={{ color: "#fff" }}>Fetch Data</strong></p>
+                <p style={{ marginTop: 12, fontSize: 14 }}>Select a dashboard to load its data</p>
               </div>
             )}
 
