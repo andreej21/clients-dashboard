@@ -311,6 +311,67 @@ app.get("/api/dashboards/:id/access", authMiddleware, async (req, res) => {
   res.json(data?.map(a => ({ id: a.users.id, email: a.users.email, role: a.role })) || []);
 });
 
+// ── Campaign structure + live controls (Meta) ───────────
+
+// Full campaign → ad set → ad hierarchy with status + budgets (not date-ranged)
+app.get("/api/dashboards/:id/structure", authMiddleware, async (req, res) => {
+  const dashId = parseInt(req.params.id);
+  if (!await checkDashboardAccess(req, res, dashId)) return;
+  const { data: dash } = await supabase.from("dashboards").select("act_id, type").eq("id", dashId).single();
+  if (!dash) return res.status(404).json({ error: "Dashboard not found" });
+  if (!["app", "lead", "ecom", "auto"].includes(dash.type)) return res.json({ campaigns: [], adsets: [], ads: [] });
+  const cents = v => v != null ? parseInt(v) / 100 : null;
+  try {
+    const tok = `access_token=${META_TOKEN}`;
+    const [campaigns, adsets, ads] = await Promise.all([
+      fetchAllPages(`${META_BASE}/${dash.act_id}/campaigns?fields=id,name,status,effective_status,daily_budget,lifetime_budget&limit=200&${tok}`),
+      fetchAllPages(`${META_BASE}/${dash.act_id}/adsets?fields=id,name,status,effective_status,campaign_id,daily_budget,lifetime_budget&limit=500&${tok}`),
+      fetchAllPages(`${META_BASE}/${dash.act_id}/ads?fields=id,name,status,effective_status,adset_id&limit=500&${tok}`),
+    ]);
+    res.json({
+      campaigns: campaigns.map(c => ({ id: c.id, name: c.name, status: c.status, effective_status: c.effective_status, daily_budget: cents(c.daily_budget), lifetime_budget: cents(c.lifetime_budget) })),
+      adsets:    adsets.map(a => ({ id: a.id, name: a.name, status: a.status, effective_status: a.effective_status, campaign_id: a.campaign_id, daily_budget: cents(a.daily_budget), lifetime_budget: cents(a.lifetime_budget) })),
+      ads:       ads.map(a => ({ id: a.id, name: a.name, status: a.status, effective_status: a.effective_status, adset_id: a.adset_id })),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Pause / activate a campaign, ad set, or ad (writes to the live account)
+app.post("/api/dashboards/:id/entity/:entityId/status", authMiddleware, async (req, res) => {
+  const dashId = parseInt(req.params.id);
+  if (!await checkDashboardAccess(req, res, dashId)) return;
+  if (!await canManageDashboard(req, dashId)) return res.status(403).json({ error: "Only admins or managers can change ads" });
+  const status = req.body?.status;
+  if (!["ACTIVE", "PAUSED"].includes(status)) return res.status(400).json({ error: "status must be ACTIVE or PAUSED" });
+  try {
+    const r = await fetch(`${META_BASE}/${req.params.entityId}`, {
+      method: "POST", body: new URLSearchParams({ status, access_token: META_TOKEN }),
+    });
+    const j = await r.json();
+    if (j.error) return res.status(400).json({ error: j.error.message });
+    res.json({ success: true, status });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Update daily or lifetime budget (amount in dollars → Meta wants minor units)
+app.post("/api/dashboards/:id/entity/:entityId/budget", authMiddleware, async (req, res) => {
+  const dashId = parseInt(req.params.id);
+  if (!await checkDashboardAccess(req, res, dashId)) return;
+  if (!await canManageDashboard(req, dashId)) return res.status(403).json({ error: "Only admins or managers can change budgets" });
+  const { budget_type, amount } = req.body || {};
+  const amt = parseFloat(amount);
+  if (!["daily", "lifetime"].includes(budget_type) || isNaN(amt) || amt <= 0) return res.status(400).json({ error: "Invalid budget" });
+  try {
+    const field = budget_type === "daily" ? "daily_budget" : "lifetime_budget";
+    const r = await fetch(`${META_BASE}/${req.params.entityId}`, {
+      method: "POST", body: new URLSearchParams({ [field]: String(Math.round(amt * 100)), access_token: META_TOKEN }),
+    });
+    const j = await r.json();
+    if (j.error) return res.status(400).json({ error: j.error.message });
+    res.json({ success: true, budget_type, amount: amt });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ── Budget pacing ───────────────────────────────────────
 
 app.patch("/api/dashboards/:id/budget", authMiddleware, async (req, res) => {

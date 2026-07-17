@@ -188,6 +188,8 @@ export default function Dashboard({ auth, onLogout, myDashboards = [], folders =
   const [adsets, setAdsets]             = useState(null);
   const [creatives, setCreatives]       = useState(null);
   const [creativesDebug, setCreativesDebug] = useState(null);
+  const [structure, setStructure]       = useState(null);
+  const [treeBusyId, setTreeBusyId]     = useState(null);
   const [dashType, setDashType]         = useState("app");
   const [convEvent, setConvEvent]       = useState("app_install");
   const [loading, setLoading]           = useState(false);
@@ -294,8 +296,13 @@ export default function Dashboard({ auth, onLogout, myDashboards = [], folders =
   const fetchData = useCallback(async (goalKeyOverride) => {
     if (!activeDash) return;
     setLoading(true); setError("");
-    setRows(null); setAds(null); setCampaigns(null); setAdsets(null); setCreatives(null);
+    setRows(null); setAds(null); setCampaigns(null); setAdsets(null); setCreatives(null); setStructure(null);
     setPrevTotals(null); setPrevRows(null);
+    // Campaign structure (status + budgets, not date-ranged) — best-effort, non-blocking
+    fetch(`${API}/dashboards/${activeDash.id}/structure`, { headers: h })
+      .then(r => r.json())
+      .then(s => { if (s && !s.error) setStructure(s); })
+      .catch(() => {});
     // Creative thumbnails (not date-ranged) — best-effort, non-blocking
     setCreativesDebug(null);
     fetch(`${API}/dashboards/${activeDash.id}/ad-creatives`, { headers: h })
@@ -422,6 +429,46 @@ export default function Dashboard({ auth, onLogout, myDashboards = [], folders =
       return j.url || null;
     } catch { return null; }
   }, [activeDash?.id, auth.token]);
+
+  const updateStructureEntity = (id, patch) => {
+    setStructure(prev => {
+      if (!prev) return prev;
+      const upd = arr => arr.map(e => e.id === id ? { ...e, ...patch } : e);
+      return { campaigns: upd(prev.campaigns), adsets: upd(prev.adsets), ads: upd(prev.ads) };
+    });
+  };
+
+  const setEntityStatus = async (entity, newStatus) => {
+    const verb = newStatus === "PAUSED" ? "Pause" : "Activate";
+    if (!window.confirm(`${verb} "${entity.name}"?\n\nThis changes your LIVE Meta account immediately.`)) return;
+    setTreeBusyId(entity.id);
+    try {
+      const res = await fetch(`${API}/dashboards/${activeDash.id}/entity/${entity.id}/status`, {
+        method: "POST", headers: { ...h, "Content-Type": "application/json" }, body: JSON.stringify({ status: newStatus }),
+      });
+      const d = await res.json();
+      if (d.error) { alert(`Failed: ${d.error}`); return; }
+      updateStructureEntity(entity.id, { status: newStatus });
+    } finally { setTreeBusyId(null); }
+  };
+
+  const setEntityBudget = async (entity, budgetType) => {
+    const current = budgetType === "daily" ? entity.daily_budget : entity.lifetime_budget;
+    const input = window.prompt(`New ${budgetType} budget for "${entity.name}" ($):`, current != null ? String(current) : "");
+    if (input == null) return;
+    const amount = parseFloat(input);
+    if (isNaN(amount) || amount <= 0) { alert("Enter a valid amount greater than 0"); return; }
+    if (!window.confirm(`Set ${budgetType} budget to $${amount.toFixed(2)} for "${entity.name}"?\n\nThis changes your LIVE Meta account immediately.`)) return;
+    setTreeBusyId(entity.id);
+    try {
+      const res = await fetch(`${API}/dashboards/${activeDash.id}/entity/${entity.id}/budget`, {
+        method: "POST", headers: { ...h, "Content-Type": "application/json" }, body: JSON.stringify({ budget_type: budgetType, amount }),
+      });
+      const d = await res.json();
+      if (d.error) { alert(`Failed: ${d.error}`); return; }
+      updateStructureEntity(entity.id, budgetType === "daily" ? { daily_budget: amount } : { lifetime_budget: amount });
+    } finally { setTreeBusyId(null); }
+  };
 
   const metrics   = getMetrics(dashType, convEvent);
   const top5Sorts = getTop5Sorts(dashType);
@@ -866,7 +913,9 @@ export default function Dashboard({ auth, onLogout, myDashboards = [], folders =
                     );
                   })}
                 </div>
-                <BreakdownTable rows={campaigns} nameLabel="Campaign" dashType={dashType} convEvent={convEvent} />
+                <CampaignTree structure={structure} campaigns={campaigns} adsets={adsets} ads={ads}
+                  dashType={dashType} canManage={canManage} busyId={treeBusyId}
+                  onStatus={setEntityStatus} onBudget={setEntityBudget} />
               </>);
             })()}
             {tab === "adsets" && rows && (
@@ -1407,6 +1456,110 @@ export function CreativeCockpit({ ads, creatives, dashType, debug, hdFetcher }) 
             style={{ ...S.btn(safePage >= pageCount - 1 ? "#1a1a2e" : "#2a2a3e", safePage >= pageCount - 1 ? "#444" : "#ddd"), cursor: safePage >= pageCount - 1 ? "default" : "pointer" }}>Next →</button>
         </div>
       )}
+    </div>
+  );
+}
+
+// Compact on/off switch
+function StatusSwitch({ on, disabled, busy, onToggle, title }) {
+  return (
+    <button disabled={disabled || busy} onClick={onToggle} title={title}
+      style={{ width: 34, height: 19, borderRadius: 10, border: "none", flexShrink: 0,
+        cursor: disabled || busy ? "default" : "pointer", position: "relative",
+        background: on ? "#10b981" : "#4b5563", opacity: busy ? 0.5 : 1, transition: "background .15s" }}>
+      <span style={{ position: "absolute", top: 2, left: on ? 17 : 2, width: 15, height: 15, borderRadius: "50%", background: "#fff", transition: "left .15s" }} />
+    </button>
+  );
+}
+
+// Expandable campaign → ad set → ad hierarchy with live status/budget controls
+function CampaignTree({ structure, campaigns, adsets, ads, dashType, canManage, busyId, onStatus, onBudget }) {
+  const [openC, setOpenC] = useState(() => new Set());
+  const [openA, setOpenA] = useState(() => new Set());
+  const isEcom = dashType === "ecom";
+
+  if (!structure) return <p style={{ color: "#555", fontSize: 13, margin: "16px 0" }}>Loading campaign structure…</p>;
+  if (!structure.campaigns?.length) return <p style={{ color: "#555", fontSize: 13, margin: "16px 0" }}>No campaigns found on this account.</p>;
+
+  const perfC  = Object.fromEntries((campaigns || []).map(c => [c.id, c]));
+  const perfAS = Object.fromEntries((adsets || []).map(a => [a.id, a]));
+  const perfAD = Object.fromEntries((ads || []).map(a => [a.id, a]));
+  const toggleSet = (set, setter, id) => { const n = new Set(set); n.has(id) ? n.delete(id) : n.add(id); setter(n); };
+
+  const Metrics = ({ p }) => (
+    <div style={{ display: "flex", gap: 12, fontSize: 11, color: "#777", flexWrap: "wrap", justifyContent: "flex-end" }}>
+      <span>Spend <b style={{ color: "#8b5cf6" }}>{p ? fmtCurrency(p.spend) : "—"}</b></span>
+      {isEcom
+        ? <span>ROAS <b style={{ color: "#fbbf24" }}>{p ? fmtROAS(p.roas) : "—"}</b></span>
+        : <><span>Conv <b style={{ color: "#10b981" }}>{p ? fmtNumber(p.conversions) : "—"}</b></span>
+            <span>CPA <b style={{ color: "#f59e0b" }}>{p && p.conversionCost > 0 ? fmtCurrency(p.conversionCost) : "—"}</b></span></>}
+      <span>CTR <b style={{ color: "#bbb" }}>{p ? fmtPercent(p.ctr) : "—"}</b></span>
+      <span>Freq <b style={{ color: p && p.frequency >= 3 ? "#f97316" : "#888" }}>{p && p.frequency ? `${p.frequency.toFixed(1)}x` : "—"}</b></span>
+    </div>
+  );
+
+  const Budget = ({ entity }) => {
+    const b = entity.daily_budget != null ? { v: entity.daily_budget, t: "daily", sfx: "/day" }
+            : entity.lifetime_budget != null ? { v: entity.lifetime_budget, t: "lifetime", sfx: " life" } : null;
+    if (!b) return null;
+    return (
+      <span style={{ fontSize: 11, color: "#ddd", whiteSpace: "nowrap", flexShrink: 0 }}>
+        {fmtCurrency(b.v)}<span style={{ color: "#555" }}>{b.sfx}</span>
+        {canManage && <button onClick={() => onBudget(entity, b.t)} title="Edit budget" style={{ background: "none", border: "none", color: "#6366f1", cursor: "pointer", fontSize: 12, marginLeft: 3, padding: 0 }}>✎</button>}
+      </span>
+    );
+  };
+
+  const Row = ({ level, entity, perf, hasChildren, isOpen, onArrow }) => {
+    const pad = 10 + level * 22;
+    const paused = entity.effective_status && entity.effective_status !== "ACTIVE";
+    const bg = level === 0 ? "#13131f" : level === 1 ? "#ffffff04" : "transparent";
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", paddingLeft: pad, borderTop: "1px solid #1a1a2e", background: bg }}>
+        {hasChildren
+          ? <button onClick={onArrow} style={{ background: "none", border: "none", color: "#888", cursor: "pointer", fontSize: 10, width: 14, flexShrink: 0, padding: 0 }}>{isOpen ? "▼" : "▶"}</button>
+          : <span style={{ width: 14, flexShrink: 0 }} />}
+        <StatusSwitch on={entity.status === "ACTIVE"} disabled={!canManage} busy={busyId === entity.id}
+          onToggle={() => onStatus(entity, entity.status === "ACTIVE" ? "PAUSED" : "ACTIVE")}
+          title={canManage ? (entity.status === "ACTIVE" ? "Pause" : "Activate") : "Read-only"} />
+        <span title={entity.name} style={{ flex: 1, minWidth: 100, fontSize: level === 0 ? 13 : 12, fontWeight: level === 0 ? 700 : 500, color: paused ? "#777" : "#eee", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {entity.name}{paused && <span style={{ color: "#555", fontWeight: 400, marginLeft: 6, fontSize: 10 }}>paused</span>}
+        </span>
+        <Budget entity={entity} />
+        <Metrics p={perf} />
+      </div>
+    );
+  };
+
+  return (
+    <div style={{ ...S.card, overflow: "hidden" }}>
+      <div style={{ padding: "12px 14px", borderBottom: "1px solid #2a2a3e", display: "flex", alignItems: "center", gap: 8 }}>
+        <p style={{ margin: 0, fontWeight: 700, fontSize: 14 }}>🗂️ Campaign Structure</p>
+        <span style={{ fontSize: 11, color: "#555" }}>· expand to drill in{canManage ? " · toggle to pause/activate · ✎ to edit budget (live)" : ""}</span>
+      </div>
+      <div style={{ overflowX: "auto" }}>
+        {structure.campaigns.map(c => {
+          const cOpen = openC.has(c.id);
+          const cAdsets = structure.adsets.filter(a => a.campaign_id === c.id);
+          return (
+            <div key={c.id}>
+              <Row level={0} entity={c} perf={perfC[c.id]} hasChildren={cAdsets.length > 0} isOpen={cOpen} onArrow={() => toggleSet(openC, setOpenC, c.id)} />
+              {cOpen && cAdsets.map(as => {
+                const aOpen = openA.has(as.id);
+                const asAds = structure.ads.filter(ad => ad.adset_id === as.id);
+                return (
+                  <div key={as.id}>
+                    <Row level={1} entity={as} perf={perfAS[as.id]} hasChildren={asAds.length > 0} isOpen={aOpen} onArrow={() => toggleSet(openA, setOpenA, as.id)} />
+                    {aOpen && asAds.map(ad => (
+                      <Row key={ad.id} level={2} entity={ad} perf={perfAD[ad.id]} hasChildren={false} />
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
