@@ -415,27 +415,21 @@ function detectGoal(adset) {
 // Normalise an ad's creative into { id, thumbnail_url, permalink, landing }.
 // Tries several fields because Meta populates different ones per creative type.
 function mapCreative(ad) {
-  const c    = ad.creative || {};
-  const spec = c.object_story_spec || {};
-  const data = spec.link_data || spec.video_data || spec.photo_data || spec.template_data || {};
-  const thumbnail_url =
-    c.image_url ||        // image ads (full res)
-    data.picture ||       // link_data thumbnail
-    data.image_url ||     // video_data thumbnail
-    data.url ||           // photo_data
-    c.thumbnail_url ||    // generic small preview (most reliable fallback)
-    null;
+  const c = ad.creative || {};
+  // thumbnail_url is a lightweight generic preview present for image AND video ads;
+  // image_url is higher-res when available. We deliberately avoid object_story_spec —
+  // requesting it in bulk trips Meta's "reduce the amount of data" limit.
+  const thumbnail_url = c.image_url || c.thumbnail_url || null;
   // Link to the live Facebook post (shows the full ad + comments)
   let permalink = null;
   if (c.effective_object_story_id && c.effective_object_story_id.includes("_")) {
     const [pageId, postId] = c.effective_object_story_id.split("_");
     if (pageId && postId) permalink = `https://www.facebook.com/${pageId}/posts/${postId}`;
   }
-  const landing = data.link || data.call_to_action?.value?.link || null;
-  return { id: ad.id, thumbnail_url, permalink, landing };
+  return { id: ad.id, thumbnail_url, permalink, landing: null };
 }
 
-const CREATIVE_FIELDS = "id,name,creative{id,thumbnail_url,image_url,effective_object_story_id,object_story_spec}";
+const CREATIVE_FIELDS = "id,name,creative{id,thumbnail_url,image_url,effective_object_story_id}";
 
 // Group an account's campaigns by detected goal (used by authed + public routes)
 function computeGoalGroups(adsets) {
@@ -515,7 +509,7 @@ app.get("/api/dashboards/:id/ad-creatives", authMiddleware, async (req, res) => 
   const { data: dash } = await supabase.from("dashboards").select("act_id").eq("id", dashId).single();
   if (!dash) return res.status(404).json({ error: "Dashboard not found" });
   try {
-    const url = `${META_BASE}/${dash.act_id}/ads?fields=${CREATIVE_FIELDS}&limit=500&access_token=${META_TOKEN}`;
+    const url = `${META_BASE}/${dash.act_id}/ads?fields=${CREATIVE_FIELDS}&limit=100&access_token=${META_TOKEN}`;
     const ads = await fetchAllPages(url);
     const data = ads.map(mapCreative);
     const withThumb = data.filter(c => c.thumbnail_url).length;
@@ -1139,7 +1133,7 @@ app.get("/api/public/:token", async (req, res) => {
       fetchAllPages(`${META_BASE}/${dash.act_id}/insights?fields=${getFields(type)}&level=account&time_range=${tr}&time_increment=1&limit=100&access_token=${META_TOKEN}${filter}`),
       fetchAllPages(`${META_BASE}/${dash.act_id}/insights?fields=campaign_id,campaign_name,${getFields(type)}&level=campaign&time_range=${tr}&limit=100&access_token=${META_TOKEN}${filter}`),
       fetchAllPages(`${META_BASE}/${dash.act_id}/insights?fields=${adFields}&level=ad&time_range=${tr}&limit=100&access_token=${META_TOKEN}${filter}`),
-      fetchAllPages(`${META_BASE}/${dash.act_id}/ads?fields=${CREATIVE_FIELDS}&limit=500&access_token=${META_TOKEN}`).catch(() => []),
+      fetchAllPages(`${META_BASE}/${dash.act_id}/ads?fields=${CREATIVE_FIELDS}&limit=100&access_token=${META_TOKEN}`).catch(() => []),
       type === "auto"
         ? fetchAllPages(`${META_BASE}/${dash.act_id}/adsets?fields=campaign_id,campaign_name,optimization_goal,destination_type,promoted_object&limit=500&access_token=${META_TOKEN}`).catch(() => [])
         : Promise.resolve([]),
