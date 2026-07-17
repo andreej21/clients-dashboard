@@ -329,8 +329,11 @@ export default function Dashboard({ auth, onLogout, myDashboards = [], folders =
     // Campaign structure (status + budgets, not date-ranged) — best-effort, non-blocking
     fetch(`${API}/dashboards/${activeDash.id}/structure`, { headers: h })
       .then(r => r.json())
-      .then(s => { if (s && !s.error) setStructure(s); })
-      .catch(() => {});
+      .then(s => {
+        if (s && Array.isArray(s.campaigns)) { setStructure(s); if (s.warning) console.warn("[structure]", s.warning); }
+        else setStructure({ campaigns: [], adsets: [], ads: [], error: s?.error || "Failed to load campaign structure" });
+      })
+      .catch(e => setStructure({ campaigns: [], adsets: [], ads: [], error: String(e) }));
     // Creative thumbnails (not date-ranged) — best-effort, non-blocking
     setCreativesDebug(null);
     fetch(`${API}/dashboards/${activeDash.id}/ad-creatives`, { headers: h })
@@ -1518,7 +1521,8 @@ function CampaignTree({ structure, campaigns, adsets, ads, dashType, canManage, 
   const isEcom = dashType === "ecom";
 
   if (!structure) return <p style={{ color: "#555", fontSize: 13, margin: "16px 0" }}>Loading campaign structure…</p>;
-  if (!structure.campaigns?.length) return <p style={{ color: "#555", fontSize: 13, margin: "16px 0" }}>No campaigns found on this account.</p>;
+  if (structure.error) return <p style={{ color: "#f87171", fontSize: 13, margin: "16px 0" }}>⚠️ Couldn't load campaign structure: {structure.error}</p>;
+  if (!structure.campaigns?.length) return <p style={{ color: "#555", fontSize: 13, margin: "16px 0" }}>No active campaigns found on this account.</p>;
 
   const perfC  = Object.fromEntries((campaigns || []).map(c => [c.id, c]));
   const perfAS = Object.fromEntries((adsets || []).map(a => [a.id, a]));

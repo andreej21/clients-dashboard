@@ -321,17 +321,23 @@ app.get("/api/dashboards/:id/structure", authMiddleware, async (req, res) => {
   if (!dash) return res.status(404).json({ error: "Dashboard not found" });
   if (!["app", "lead", "ecom", "auto"].includes(dash.type)) return res.json({ campaigns: [], adsets: [], ads: [] });
   const cents = v => v != null ? parseInt(v) / 100 : null;
+  // Exclude ARCHIVED/DELETED entities — on old accounts these number in the thousands
+  // and make the full pagination slow enough to time out.
+  const es = arr => `&effective_status=${encodeURIComponent(JSON.stringify(arr))}`;
+  const tok = `access_token=${META_TOKEN}`;
   try {
-    const tok = `access_token=${META_TOKEN}`;
-    const [campaigns, adsets, ads] = await Promise.all([
-      fetchAllPages(`${META_BASE}/${dash.act_id}/campaigns?fields=id,name,status,effective_status,daily_budget,lifetime_budget&limit=200&${tok}`),
-      fetchAllPages(`${META_BASE}/${dash.act_id}/adsets?fields=id,name,status,effective_status,campaign_id,daily_budget,lifetime_budget&limit=500&${tok}`),
-      fetchAllPages(`${META_BASE}/${dash.act_id}/ads?fields=id,name,status,effective_status,adset_id&limit=500&${tok}`),
+    const [cR, aR, adR] = await Promise.allSettled([
+      fetchAllPages(`${META_BASE}/${dash.act_id}/campaigns?fields=id,name,status,effective_status,daily_budget,lifetime_budget&limit=200${es(["ACTIVE", "PAUSED"])}&${tok}`),
+      fetchAllPages(`${META_BASE}/${dash.act_id}/adsets?fields=id,name,status,effective_status,campaign_id,daily_budget,lifetime_budget&limit=200${es(["ACTIVE", "PAUSED", "CAMPAIGN_PAUSED"])}&${tok}`),
+      fetchAllPages(`${META_BASE}/${dash.act_id}/ads?fields=id,name,status,effective_status,adset_id&limit=200${es(["ACTIVE", "PAUSED", "CAMPAIGN_PAUSED", "ADSET_PAUSED", "DISAPPROVED", "WITH_ISSUES", "PENDING_REVIEW"])}&${tok}`),
     ]);
+    const val = r => r.status === "fulfilled" ? r.value : [];
+    const errs = [cR, aR, adR].filter(r => r.status === "rejected").map(r => r.reason?.message || String(r.reason));
     res.json({
-      campaigns: campaigns.map(c => ({ id: c.id, name: c.name, status: c.status, effective_status: c.effective_status, daily_budget: cents(c.daily_budget), lifetime_budget: cents(c.lifetime_budget) })),
-      adsets:    adsets.map(a => ({ id: a.id, name: a.name, status: a.status, effective_status: a.effective_status, campaign_id: a.campaign_id, daily_budget: cents(a.daily_budget), lifetime_budget: cents(a.lifetime_budget) })),
-      ads:       ads.map(a => ({ id: a.id, name: a.name, status: a.status, effective_status: a.effective_status, adset_id: a.adset_id })),
+      campaigns: val(cR).map(c => ({ id: c.id, name: c.name, status: c.status, effective_status: c.effective_status, daily_budget: cents(c.daily_budget), lifetime_budget: cents(c.lifetime_budget) })),
+      adsets:    val(aR).map(a => ({ id: a.id, name: a.name, status: a.status, effective_status: a.effective_status, campaign_id: a.campaign_id, daily_budget: cents(a.daily_budget), lifetime_budget: cents(a.lifetime_budget) })),
+      ads:       val(adR).map(a => ({ id: a.id, name: a.name, status: a.status, effective_status: a.effective_status, adset_id: a.adset_id })),
+      warning:   errs.length ? errs.join(" | ") : undefined,
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
