@@ -1086,11 +1086,11 @@ export default function Dashboard({ auth, onLogout, myDashboards = [], folders =
                       <th style={S.th}>Ad Name</th><th style={S.th}>Spend</th>
                       {dashType !== "ecom" && <><th style={S.th}>Conversions</th><th style={S.th}>CPA</th></>}
                       {dashType === "ecom" && <><th style={S.th}>Purchases</th><th style={S.th}>Revenue</th><th style={S.th}>ROAS</th><th style={S.th}>Cost/Purchase</th></>}
-                      <th style={S.th}>CPM</th><th style={S.th}>CPC</th><th style={S.th}>CTR</th><th style={S.th}>Impressions</th>
+                      <th style={S.th}>CPM</th><th style={S.th}>CPC</th><th style={S.th}>CTR</th><th style={S.th}>Freq</th><th style={S.th}>Impressions</th>
                     </tr></thead>
                     <tbody>
                       {sortedAds.length === 0
-                        ? <tr><td colSpan={9} style={{ ...S.td, textAlign: "center", color: "#555", padding: 20 }}>No ad data</td></tr>
+                        ? <tr><td colSpan={10} style={{ ...S.td, textAlign: "center", color: "#555", padding: 20 }}>No ad data</td></tr>
                         : sortedAds.map((ad, i) => (
                           <tr key={ad.id || i} style={{ borderTop: "1px solid #1a1a2e" }}>
                             <td style={{ ...S.td, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis" }} title={ad.name}>
@@ -1110,6 +1110,7 @@ export default function Dashboard({ auth, onLogout, myDashboards = [], folders =
                             <td style={S.td}>{fmtCurrency(ad.cpm)}</td>
                             <td style={S.td}>{fmtCurrency(ad.cpc)}</td>
                             <td style={S.td}>{fmtPercent(ad.ctr)}</td>
+                            <td style={{ ...S.td, color: ad.frequency >= 3 ? "#f97316" : "#fff", fontWeight: ad.frequency >= 3 ? 700 : 400 }}>{ad.frequency ? `${ad.frequency.toFixed(1)}x` : "—"}</td>
                             <td style={S.td}>{fmtNumber(ad.impressions)}</td>
                           </tr>
                         ))}
@@ -1441,10 +1442,11 @@ function BreakdownTable({ rows, nameLabel, subLabel, subKey, dashType, convEvent
             <SortTh k="cpm" label="CPM" />
             <SortTh k="cpc" label="CPC" />
             <SortTh k="ctr" label="CTR" />
+            <SortTh k="frequency" label="Freq" />
           </tr></thead>
           <tbody>
             {sorted.length === 0
-              ? <tr><td colSpan={12} style={{ ...S.td, textAlign: "center", color: "#555", padding: 20 }}>No data</td></tr>
+              ? <tr><td colSpan={13} style={{ ...S.td, textAlign: "center", color: "#555", padding: 20 }}>No data</td></tr>
               : sorted.map((row, i) => (
                 <tr key={row.id || i} style={{ borderTop: "1px solid #1a1a2e", background: i % 2 ? "#ffffff04" : "transparent" }}>
                   <td style={{ ...S.td, fontWeight: 600, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis" }} title={row.name}>{row.name}</td>
@@ -1462,6 +1464,7 @@ function BreakdownTable({ rows, nameLabel, subLabel, subKey, dashType, convEvent
                   <td style={S.td}>{fmtCurrency(row.cpm)}</td>
                   <td style={S.td}>{fmtCurrency(row.cpc)}</td>
                   <td style={S.td}>{fmtPercent(row.ctr)}</td>
+                  <td style={{ ...S.td, color: row.frequency >= 3 ? "#f97316" : "#fff", fontWeight: row.frequency >= 3 ? 700 : 400 }}>{row.frequency ? `${row.frequency.toFixed(1)}x` : "—"}</td>
                 </tr>
               ))
             }
