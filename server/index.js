@@ -258,7 +258,7 @@ app.delete("/api/dashboards/:id/access/:userId", authMiddleware, async (req, res
 // ── Client: My Dashboards ───────────────────────────────
 
 app.get("/api/my-dashboards", authMiddleware, async (req, res) => {
-  const safeFields = "id, name, act_id, type, conversion_event, folder_id, created_at";
+  const safeFields = "id, name, act_id, type, conversion_event, folder_id, monthly_budget, created_at";
   if (req.user.role === "admin") {
     const { data } = await supabase.from("dashboards").select(safeFields).order("name");
     return res.json(data || []);
@@ -309,6 +309,53 @@ app.get("/api/dashboards/:id/access", authMiddleware, async (req, res) => {
   const { data } = await supabase.from("dashboard_access")
     .select("role, users(id, email)").eq("dashboard_id", dashId);
   res.json(data?.map(a => ({ id: a.users.id, email: a.users.email, role: a.role })) || []);
+});
+
+// ── Budget pacing ───────────────────────────────────────
+
+app.patch("/api/dashboards/:id/budget", authMiddleware, async (req, res) => {
+  const dashId = parseInt(req.params.id);
+  if (!await checkDashboardAccess(req, res, dashId)) return;
+  if (!await canManageDashboard(req, dashId)) return res.status(403).json({ error: "Only admins or managers can set the budget" });
+  const { monthly_budget } = req.body;
+  const val = (monthly_budget === null || monthly_budget === "" || monthly_budget === undefined) ? null : parseFloat(monthly_budget);
+  if (val !== null && (isNaN(val) || val < 0)) return res.status(400).json({ error: "Invalid budget" });
+  const { data, error } = await supabase.from("dashboards").update({ monthly_budget: val }).eq("id", dashId).select("id, monthly_budget").single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+// Month-to-date account spend for the current calendar month (Meta + Google)
+app.get("/api/dashboards/:id/mtd-spend", authMiddleware, async (req, res) => {
+  const dashId = parseInt(req.params.id);
+  if (!await checkDashboardAccess(req, res, dashId)) return;
+  const { data: dash } = await supabase.from("dashboards").select("act_id, type").eq("id", dashId).single();
+  if (!dash) return res.status(404).json({ error: "Dashboard not found" });
+  const now = new Date();
+  const y = now.getFullYear(), m = now.getMonth();
+  const pad = n => String(n).padStart(2, "0");
+  const monthStart  = `${y}-${pad(m + 1)}-01`;
+  const daysInMonth = new Date(y, m + 1, 0).getDate();
+  const dayOfMonth  = now.getDate();
+  const yst = new Date(now); yst.setDate(now.getDate() - 1);
+  let until = `${yst.getFullYear()}-${pad(yst.getMonth() + 1)}-${pad(yst.getDate())}`;
+  if (until < monthStart) until = monthStart;
+  const monthLabel = now.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  try {
+    let mtdSpend = 0;
+    if (dash.type === "google") {
+      const results = await googleAdsQuery(dash.act_id, `
+        SELECT metrics.cost_micros FROM campaign
+        WHERE segments.date BETWEEN '${monthStart}' AND '${until}' AND campaign.status != 'REMOVED'`);
+      mtdSpend = results.reduce((s, r) => s + parseInt(r.metrics?.costMicros || 0), 0) / 1_000_000;
+    } else {
+      const tr = encodeURIComponent(JSON.stringify({ since: monthStart, until }));
+      const url = `${META_BASE}/${dash.act_id}/insights?fields=spend&level=account&time_range=${tr}&access_token=${META_TOKEN}`;
+      const rows = await fetchAllPages(url);
+      mtdSpend = rows.reduce((s, r) => s + parseFloat(r.spend || 0), 0);
+    }
+    res.json({ mtdSpend, dayOfMonth, daysInMonth, monthLabel });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ── Annotations ────────────────────────────────────────

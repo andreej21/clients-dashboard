@@ -62,6 +62,7 @@ export function parseRow(day, type, convEvent, actionTypes) {
     label: day.date_start ? date.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }) : "",
     spend, conversions: parseInt(ia?.value) || 0, conversionCost: parseFloat(ca?.value) || 0,
     impressions: parseInt(day.impressions) || 0, reach: parseInt(day.reach) || 0,
+    frequency: (parseInt(day.reach) || 0) > 0 ? (parseInt(day.impressions) || 0) / (parseInt(day.reach) || 0) : 0,
     cpm: parseFloat(day.cpm) || 0,
     cpc: parseFloat(day.cost_per_unique_outbound_click?.[0]?.value) || 0,
     ctr: parseFloat(day.unique_outbound_clicks_ctr?.[0]?.value) || 0,
@@ -213,8 +214,13 @@ export default function Dashboard({ auth, onLogout, myDashboards = [], folders =
   const [shares, setShares]             = useState([]);
   const [shareBusy, setShareBusy]       = useState(false);
   const [copiedId, setCopiedId]         = useState(null);
+  const [budget, setBudget]             = useState(null);
+  const [mtd, setMtd]                   = useState(null);
+  const [budgetInput, setBudgetInput]   = useState("");
+  const [budgetEditing, setBudgetEditing] = useState(false);
 
   const canShare = auth.user.role === "admin" || activeDash?.access_role === "manager";
+  const canManage = canShare;
 
   const defEnd = new Date(); defEnd.setDate(defEnd.getDate() - 1);
   const defStart = new Date(defEnd); defStart.setDate(defStart.getDate() - 6);
@@ -239,6 +245,27 @@ export default function Dashboard({ auth, onLogout, myDashboards = [], folders =
     fetch(`${API}/dashboards/${activeDash.id}/annotations`, { headers: h })
       .then(r => r.json()).then(data => setAnnotations(Array.isArray(data) ? data : []));
   }, [activeDash]);
+
+  // Budget + month-to-date spend for pacing
+  useEffect(() => {
+    if (!activeDash) return;
+    setBudget(activeDash.monthly_budget ?? null);
+    setBudgetInput(activeDash.monthly_budget != null ? String(activeDash.monthly_budget) : "");
+    setBudgetEditing(false);
+    setMtd(null);
+    fetch(`${API}/dashboards/${activeDash.id}/mtd-spend`, { headers: h })
+      .then(r => r.json()).then(d => { if (d && !d.error) setMtd(d); }).catch(() => {});
+  }, [activeDash?.id]);
+
+  const saveBudget = async () => {
+    const val = budgetInput.trim() === "" ? null : parseFloat(budgetInput);
+    const res = await fetch(`${API}/dashboards/${activeDash.id}/budget`, {
+      method: "PATCH", headers: { ...h, "Content-Type": "application/json" },
+      body: JSON.stringify({ monthly_budget: val }),
+    });
+    const d = await res.json();
+    if (!d.error) { setBudget(d.monthly_budget); setBudgetEditing(false); }
+  };
 
   useEffect(() => {
     setGoalGroups(null); setActiveGoalKey(null);
@@ -874,6 +901,70 @@ export default function Dashboard({ auth, onLogout, myDashboards = [], folders =
                   </div>
                 );
               })()}
+              {(budget != null || canManage) && (() => {
+                const b = budget;
+                const projected = mtd && mtd.dayOfMonth > 0 ? mtd.mtdSpend / mtd.dayOfMonth * mtd.daysInMonth : null;
+                const usedPct = b > 0 && mtd ? (mtd.mtdSpend / b) * 100 : 0;
+                const elapsedPct = mtd ? (mtd.dayOfMonth / mtd.daysInMonth) * 100 : 0;
+                let status = null;
+                if (b > 0 && projected != null) {
+                  if (projected > b * 1.05)      status = { label: "Over pace",  color: "#ef4444" };
+                  else if (projected < b * 0.9)  status = { label: "Under pace", color: "#f59e0b" };
+                  else                           status = { label: "On track",   color: "#10b981" };
+                }
+                const barColor = status ? status.color : "#6366f1";
+                return (
+                  <div style={{ ...S.card, padding: "16px 18px", marginBottom: 20 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
+                      <p style={{ margin: 0, fontWeight: 700, fontSize: 14 }}>💸 Budget Pacing <span style={{ color: "#555", fontWeight: 400, fontSize: 12 }}>· {mtd?.monthLabel || "this month"} · account total</span></p>
+                      {status && <span style={{ fontSize: 11, fontWeight: 700, color: status.color, background: status.color + "22", borderRadius: 6, padding: "3px 10px" }}>{status.label}</span>}
+                      {canManage && !budgetEditing && (
+                        <button onClick={() => setBudgetEditing(true)} style={{ ...S.btn("#2a2a3e", "#aaa"), marginLeft: "auto" }}>{b != null ? "Edit budget" : "Set budget"}</button>
+                      )}
+                    </div>
+                    {canManage && budgetEditing && (
+                      <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+                        <input type="number" placeholder="Monthly budget ($)" value={budgetInput} onChange={e => setBudgetInput(e.target.value)} style={{ ...S.inp, flex: "0 0 200px" }} />
+                        <button onClick={saveBudget} style={S.btn("#6366f1", "#fff")}>Save</button>
+                        <button onClick={() => { setBudgetEditing(false); setBudgetInput(b != null ? String(b) : ""); }} style={S.btn("#2a2a3e", "#aaa")}>Cancel</button>
+                      </div>
+                    )}
+                    {b == null
+                      ? <p style={{ color: "#555", fontSize: 13, margin: 0 }}>No monthly budget set{canManage ? " — set one to track pacing and get over/underspend warnings." : "."}</p>
+                      : !mtd
+                        ? <p style={{ color: "#555", fontSize: 13, margin: 0 }}>Loading month-to-date spend…</p>
+                        : (<>
+                            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 6 }}>
+                              <span style={{ color: "#aaa" }}>{fmtCurrency(mtd.mtdSpend)} spent</span>
+                              <span style={{ color: "#555" }}>of {fmtCurrency(b)} ({usedPct.toFixed(0)}%)</span>
+                            </div>
+                            <div style={{ position: "relative", height: 10, background: "#13131f", borderRadius: 6, overflow: "hidden", marginBottom: 4 }}>
+                              <div style={{ width: `${Math.min(100, usedPct)}%`, height: "100%", background: barColor, borderRadius: 6 }} />
+                              <div style={{ position: "absolute", top: -2, bottom: -2, left: `${Math.min(100, elapsedPct)}%`, width: 2, background: "#ffffffaa" }} title="Month elapsed to today" />
+                            </div>
+                            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "#555", marginBottom: 14 }}>
+                              <span>Day {mtd.dayOfMonth} of {mtd.daysInMonth}</span>
+                              <span>{elapsedPct.toFixed(0)}% of month elapsed (white line)</span>
+                            </div>
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px,1fr))", gap: 12 }}>
+                              <div style={{ background: "#13131f", borderRadius: 10, padding: "10px 12px" }}>
+                                <p style={{ margin: "0 0 4px", fontSize: 10, color: "#666", fontWeight: 600 }}>PROJECTED SPEND</p>
+                                <p style={{ margin: 0, fontSize: 18, fontWeight: 800, color: barColor }}>{projected != null ? fmtCurrency(projected) : "—"}</p>
+                              </div>
+                              <div style={{ background: "#13131f", borderRadius: 10, padding: "10px 12px" }}>
+                                <p style={{ margin: "0 0 4px", fontSize: 10, color: "#666", fontWeight: 600 }}>{projected > b ? "PROJECTED OVER BY" : "PROJECTED UNDER BY"}</p>
+                                <p style={{ margin: 0, fontSize: 18, fontWeight: 800, color: projected > b ? "#ef4444" : "#10b981" }}>{projected != null ? fmtCurrency(Math.abs(projected - b)) : "—"}</p>
+                              </div>
+                              <div style={{ background: "#13131f", borderRadius: 10, padding: "10px 12px" }}>
+                                <p style={{ margin: "0 0 4px", fontSize: 10, color: "#666", fontWeight: 600 }}>BUDGET REMAINING</p>
+                                <p style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>{fmtCurrency(Math.max(0, b - mtd.mtdSpend))}</p>
+                              </div>
+                            </div>
+                          </>)
+                    }
+                  </div>
+                );
+              })()}
               {fc && (() => {
                 const isEcom = dashType === "ecom";
                 const tiles = [
@@ -1208,6 +1299,15 @@ export function CreativeCockpit({ ads, creatives, dashType, debug, hdFetcher }) 
   const avgSpend = list.length ? list.reduce((s, a) => s + a.spend, 0) / list.length : 0;
   const roasAds  = list.filter(a => a.roas > 0);
   const avgRoas  = roasAds.length ? roasAds.reduce((s, a) => s + a.roas, 0) / roasAds.length : 0;
+  const ctrAds   = list.filter(a => a.ctr > 0);
+  const avgCtr   = ctrAds.length ? ctrAds.reduce((s, a) => s + a.ctr, 0) / ctrAds.length : 0;
+
+  // Fatigue: same people seeing the ad a lot (high frequency) AND engagement below
+  // the account average (falling CTR) → the creative is worn out and needs refreshing.
+  const fatigueOf = a => {
+    if (a.frequency >= 3 && a.ctr > 0 && avgCtr > 0 && a.ctr < avgCtr) return { label: "🔥 Fatigued", color: "#f97316" };
+    return null;
+  };
 
   const badgeFor = a => {
     if (isEcom) {
@@ -1227,6 +1327,7 @@ export function CreativeCockpit({ ads, creatives, dashType, debug, hdFetcher }) 
       ? [{ key: "roas_desc", label: "ROAS" }, { key: "revenue_desc", label: "Revenue" }]
       : [{ key: "conversions_desc", label: "Conversions" }, { key: "conversionCost_asc", label: "Best CPA" }]),
     { key: "ctr_desc", label: "CTR" },
+    { key: "frequency_desc", label: "🔥 Fatigue" },
   ];
   const sorted = [...list].sort((a, b) => {
     const [k, dir] = sortKey.split("_");
@@ -1268,11 +1369,13 @@ export function CreativeCockpit({ ads, creatives, dashType, debug, hdFetcher }) 
         {shown.map((a, i) => {
           const cr = creatives?.[a.id];
           const badge = badgeFor(a);
+          const fat = fatigueOf(a);
           return (
             <div key={a.id || i} style={{ background: "#1e1e2e", border: `1px solid ${badge ? badge.color + "66" : "#2a2a3e"}`, borderRadius: 12, overflow: "hidden", display: "flex", flexDirection: "column" }}>
               <div style={{ position: "relative", background: "#13131f", aspectRatio: "1 / 1", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center" }}>
                 <CreativeThumb creative={cr} alt={a.name} hdFetcher={hdFetcher} />
                 {badge && <span style={{ position: "absolute", top: 8, left: 8, fontSize: 10, fontWeight: 700, color: badge.color, background: "#000000cc", borderRadius: 6, padding: "3px 8px" }}>{badge.label}</span>}
+                {fat && <span style={{ position: "absolute", top: 8, right: 8, fontSize: 10, fontWeight: 700, color: fat.color, background: "#000000cc", borderRadius: 6, padding: "3px 8px" }} title={`Frequency ${a.frequency.toFixed(1)}x with below-average CTR — consider refreshing`}>{fat.label}</span>}
               </div>
               <div style={{ padding: "10px 12px", flex: 1, display: "flex", flexDirection: "column" }}>
                 <p style={{ margin: "0 0 8px", fontSize: 12, fontWeight: 600, color: "#ddd", lineHeight: 1.3, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }} title={a.name}>{a.name}</p>
@@ -1281,6 +1384,7 @@ export function CreativeCockpit({ ads, creatives, dashType, debug, hdFetcher }) 
                   {isEcom
                     ? <><CockpitMetric label="ROAS" value={fmtROAS(a.roas)} color="#fbbf24" /><CockpitMetric label="Revenue" value={fmtCurrency(a.revenue)} color="#34d399" /><CockpitMetric label="Purch." value={fmtNumber(a.conversions)} color="#10b981" /></>
                     : <><CockpitMetric label="Conv." value={fmtNumber(a.conversions)} color="#10b981" /><CockpitMetric label="CPA" value={a.conversionCost > 0 ? fmtCurrency(a.conversionCost) : "—"} color="#f59e0b" /><CockpitMetric label="CTR" value={fmtPercent(a.ctr)} color="#f97316" /></>}
+                  <CockpitMetric label="Freq" value={a.frequency ? `${a.frequency.toFixed(1)}x` : "—"} color={fat ? "#f97316" : "#888"} />
                 </div>
                 {(cr?.permalink || cr?.landing) && (
                   <div style={{ display: "flex", gap: 12, marginTop: 10, flexWrap: "wrap" }}>

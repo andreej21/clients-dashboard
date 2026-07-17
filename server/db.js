@@ -41,6 +41,7 @@ async function initDb() {
         expires_at TIMESTAMPTZ,
         revoked BOOLEAN DEFAULT FALSE
       );
+      ALTER TABLE dashboards ADD COLUMN IF NOT EXISTS monthly_budget NUMERIC;
     `
   });
 
