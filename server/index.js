@@ -548,25 +548,33 @@ app.get("/api/dashboards/:id/creative-hd/:adId", authMiddleware, async (req, res
   const dashId = parseInt(req.params.id);
   if (!await checkDashboardAccess(req, res, dashId)) return;
   try {
-    const cUrl = `${META_BASE}/${req.params.adId}?fields=creative{image_url,effective_object_story_id,object_story_spec{video_data{video_id,image_url},link_data{picture}}}&access_token=${META_TOKEN}`;
+    const cUrl = `${META_BASE}/${req.params.adId}?fields=creative{id,image_url,effective_object_story_id,object_story_spec{video_data{video_id,image_url},link_data{picture}}}&access_token=${META_TOKEN}`;
     const cJson = await (await fetch(cUrl)).json();
     const c = cJson.creative || {};
     const spec = c.object_story_spec || {};
-    let url = c.image_url || spec.video_data?.image_url || spec.link_data?.picture || null;
+    let url = null, via = null;
+    if (c.image_url)              { url = c.image_url;             via = "image_url"; }
+    else if (spec.video_data?.image_url) { url = spec.video_data.image_url; via = "video_cover"; }
+    else if (spec.link_data?.picture)    { url = spec.link_data.picture;    via = "link_picture"; }
     // Video ad with no cover → largest stored frame
-    if (!url && spec.video_data?.video_id) url = await bestVideoThumb(spec.video_data.video_id);
-    // Post-based ad → follow the post to its image / attached video frame
+    if (!url && spec.video_data?.video_id) { url = await bestVideoThumb(spec.video_data.video_id); if (url) via = "video_frame"; }
+    // Post-based ad → follow the post (needs page-level read access on the token)
     if (!url && c.effective_object_story_id) {
-      const pUrl = `${META_BASE}/${c.effective_object_story_id}?fields=full_picture,attachments{media_type,media{image{src}},target{id}}&access_token=${META_TOKEN}`;
-      const pJson = await (await fetch(pUrl)).json();
+      const pJson = await (await fetch(`${META_BASE}/${c.effective_object_story_id}?fields=full_picture,attachments{media_type,media{image{src}},target{id}}&access_token=${META_TOKEN}`)).json();
       if (!pJson.error) {
         const att = pJson.attachments?.data?.[0];
-        if (att?.media_type === "video" && att?.target?.id) url = await bestVideoThumb(att.target.id);
-        url = url || att?.media?.image?.src || pJson.full_picture || null;
-      }
+        if (att?.media_type === "video" && att?.target?.id) { url = await bestVideoThumb(att.target.id); if (url) via = "post_video"; }
+        if (!url && att?.media?.image?.src) { url = att.media.image.src; via = "post_attachment"; }
+        if (!url && pJson.full_picture)     { url = pJson.full_picture;   via = "post_full_picture"; }
+      } else { via = `post_err_${pJson.error?.code}`; }
     }
-    res.json({ url });
-  } catch { res.json({ url: null }); }
+    // ads_read-only fallback: ask the creative directly for a large thumbnail
+    if (!url && c.id) {
+      const tJson = await (await fetch(`${META_BASE}/${c.id}?fields=thumbnail_url&thumbnail_width=1080&thumbnail_height=1080&access_token=${META_TOKEN}`)).json();
+      if (tJson.thumbnail_url) { url = tJson.thumbnail_url; via = "creative_thumb_1080"; }
+    }
+    res.json({ url, via });
+  } catch (e) { res.json({ url: null, via: `err:${e.message}` }); }
 });
 
 app.get("/api/dashboards/:id/goal-groups", authMiddleware, async (req, res) => {
