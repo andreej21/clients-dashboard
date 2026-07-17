@@ -31,6 +31,16 @@ async function initDb() {
         role TEXT NOT NULL DEFAULT 'viewer',
         UNIQUE(dashboard_id, user_id)
       );
+      CREATE TABLE IF NOT EXISTS dashboard_shares (
+        id SERIAL PRIMARY KEY,
+        dashboard_id INTEGER NOT NULL REFERENCES dashboards(id) ON DELETE CASCADE,
+        token TEXT UNIQUE NOT NULL,
+        label TEXT,
+        created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        expires_at TIMESTAMPTZ,
+        revoked BOOLEAN DEFAULT FALSE
+      );
     `
   });
 

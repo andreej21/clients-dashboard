@@ -6,6 +6,7 @@ import Dashboard from "./Dashboard";
 import GoogleDashboard from "./GoogleDashboard";
 import OrganicDashboard from "./OrganicDashboard";
 import ResetPassword from "./ResetPassword";
+import PublicDashboard from "./PublicDashboard";
 import API from "./config";
 
 export default function App() {
@@ -60,6 +61,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/reset-password" element={<ResetPassword />} />
+      <Route path="/share/:token" element={<PublicDashboard />} />
       {!auth ? (
         <Route path="*" element={<Login onLogin={login} />} />
       ) : (

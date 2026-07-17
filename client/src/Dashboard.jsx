@@ -4,16 +4,16 @@ import spLogo from "./assets/sp-logo.png";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine } from "recharts";
 import API from "./config";
 
-const fmtCurrency = v => `$${parseFloat(v || 0).toFixed(2)}`;
-const fmtNumber   = v => parseInt(v || 0).toLocaleString();
-const fmtPercent  = v => `${parseFloat(v || 0).toFixed(2)}%`;
-const fmtROAS     = v => `${parseFloat(v || 0).toFixed(2)}x`;
-const toYMD = d => d.toISOString().split("T")[0];
+export const fmtCurrency = v => `$${parseFloat(v || 0).toFixed(2)}`;
+export const fmtNumber   = v => parseInt(v || 0).toLocaleString();
+export const fmtPercent  = v => `${parseFloat(v || 0).toFixed(2)}%`;
+export const fmtROAS     = v => `${parseFloat(v || 0).toFixed(2)}x`;
+export const toYMD = d => d.toISOString().split("T")[0];
 
 const INSTALL_TYPES = ["omni_app_install", "mobile_app_install", "app_install"];
 const findAction = (arr, types) => arr?.find(x => (Array.isArray(types) ? types : [types]).includes(x.action_type));
 
-function getMetrics(type, convEvent) {
+export function getMetrics(type, convEvent) {
   const convLabel = convEvent === "complete_registration" ? "Registrations" : convEvent === "lead" ? "Leads" : convEvent === "purchase" ? "Purchases" : "Conversions";
   const cpaLabel  = convEvent === "complete_registration" ? "Cost/Registration" : convEvent === "lead" ? "Cost/Lead" : convEvent === "purchase" ? "Cost/Purchase" : "CPA";
   const shared = [
@@ -38,7 +38,7 @@ function getTop5Sorts(type) {
   return base;
 }
 
-function parseRow(day, type, convEvent, actionTypes) {
+export function parseRow(day, type, convEvent, actionTypes) {
   const convTypes = actionTypes || (type === "app" ? INSTALL_TYPES : type === "lead" ? [convEvent || "lead"] : ["purchase", "omni_purchase"]);
   const ia  = findAction(day.actions, convTypes);
   const ca  = findAction(day.cost_per_action_type, convTypes);
@@ -70,7 +70,7 @@ function parseRow(day, type, convEvent, actionTypes) {
   };
 }
 
-function computeTotals(rows) {
+export function computeTotals(rows) {
   const t = rows.reduce((acc, r) => ({
     spend: acc.spend + r.spend, conversions: acc.conversions + r.conversions,
     impressions: acc.impressions + r.impressions, reach: acc.reach + r.reach,
@@ -115,7 +115,7 @@ function computeForecast(rows) {
   };
 }
 
-const S = {
+export const S = {
   card: { background: "#1e1e2e", border: "1px solid #2a2a3e", borderRadius: 12 },
   inp:  { background: "#13131f", border: "1px solid #2a2a3e", borderRadius: 8, padding: "9px 12px", color: "#fff", fontSize: 13, outline: "none" },
   th:   { padding: "9px 14px", textAlign: "left", color: "#555", fontWeight: 600, whiteSpace: "nowrap", fontSize: 12 },
@@ -208,6 +208,12 @@ export default function Dashboard({ auth, onLogout, myDashboards = [], folders =
   });
   const [goalGroups, setGoalGroups]     = useState(null);
   const [activeGoalKey, setActiveGoalKey] = useState(null);
+  const [showSharePanel, setSharePanel] = useState(false);
+  const [shares, setShares]             = useState([]);
+  const [shareBusy, setShareBusy]       = useState(false);
+  const [copiedId, setCopiedId]         = useState(null);
+
+  const canShare = auth.user.role === "admin" || activeDash?.access_role === "manager";
 
   const defEnd = new Date(); defEnd.setDate(defEnd.getDate() - 1);
   const defStart = new Date(defEnd); defStart.setDate(defStart.getDate() - 6);
@@ -343,6 +349,38 @@ export default function Dashboard({ auth, onLogout, myDashboards = [], folders =
   const deleteAnnotation = async (annotId) => {
     await fetch(`${API}/dashboards/${activeDash.id}/annotations/${annotId}`, { method: "DELETE", headers: h });
     setAnnotations(prev => prev.filter(a => a.id !== annotId));
+  };
+
+  const openSharePanel = async () => {
+    const opening = !showSharePanel;
+    setSharePanel(opening);
+    if (opening && activeDash) {
+      const res = await fetch(`${API}/dashboards/${activeDash.id}/shares`, { headers: h });
+      const data = await res.json();
+      setShares(Array.isArray(data) ? data : []);
+    }
+  };
+
+  const createShare = async (expires_in_days) => {
+    setShareBusy(true);
+    const res = await fetch(`${API}/dashboards/${activeDash.id}/shares`, {
+      method: "POST", headers: { ...h, "Content-Type": "application/json" },
+      body: JSON.stringify({ expires_in_days: expires_in_days || null }),
+    });
+    const data = await res.json();
+    if (!data.error) setShares(prev => [data, ...prev]);
+    setShareBusy(false);
+  };
+
+  const revokeShare = async (shareId) => {
+    await fetch(`${API}/dashboards/${activeDash.id}/shares/${shareId}`, { method: "DELETE", headers: h });
+    setShares(prev => prev.filter(s => s.id !== shareId));
+  };
+
+  const copyShare = (s) => {
+    navigator.clipboard?.writeText(s.url);
+    setCopiedId(s.id);
+    setTimeout(() => setCopiedId(c => (c === s.id ? null : c)), 1600);
   };
 
   const metrics   = getMetrics(dashType, convEvent);
@@ -578,6 +616,45 @@ export default function Dashboard({ auth, onLogout, myDashboards = [], folders =
                     {typeBadge[activeDash.type]?.label}
                   </span>
                 )}
+                {canShare && (
+                  <button onClick={openSharePanel} style={{
+                    ...S.btn(showSharePanel ? "#22c55e22" : "#2a2a3e", showSharePanel ? "#22c55e" : "#aaa"),
+                    border: `1px solid ${showSharePanel ? "#22c55e" : "transparent"}`, flexShrink: 0,
+                  }}>
+                    🔗 Share
+                  </button>
+                )}
+              </div>
+            )}
+
+            {showSharePanel && activeDash && (
+              <div style={{ ...S.card, padding: 20, marginBottom: 20, borderColor: "#22c55e44" }}>
+                <p style={{ margin: "0 0 4px", fontWeight: 700, fontSize: 14, color: "#22c55e" }}>🔗 Public Share Links</p>
+                <p style={{ margin: "0 0 14px", fontSize: 12, color: "#666" }}>
+                  Anyone with the link sees a live, read-only view of this dashboard — no login required. Revoke any time.
+                </p>
+                <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+                  <button onClick={() => createShare(null)} disabled={shareBusy} style={{ ...S.btn("#22c55e", "#fff"), opacity: shareBusy ? 0.6 : 1 }}>
+                    {shareBusy ? "Creating…" : "+ Create link (never expires)"}
+                  </button>
+                  <button onClick={() => createShare(30)} disabled={shareBusy} style={S.btn("#2a2a3e", "#aaa")}>+ 30-day link</button>
+                  <button onClick={() => createShare(7)} disabled={shareBusy} style={S.btn("#2a2a3e", "#aaa")}>+ 7-day link</button>
+                </div>
+                {shares.length === 0
+                  ? <p style={{ color: "#555", fontSize: 13, margin: 0 }}>No active links yet</p>
+                  : shares.map(s => (
+                    <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderTop: "1px solid #1a1a2e", flexWrap: "wrap" }}>
+                      <input readOnly value={s.url} onFocus={e => e.target.select()} style={{ ...S.inp, flex: 1, minWidth: 220, fontSize: 12, color: "#8b9cf8" }} />
+                      <button onClick={() => copyShare(s)} style={S.btn(copiedId === s.id ? "#052e16" : "#2a2a3e", copiedId === s.id ? "#10b981" : "#aaa")}>
+                        {copiedId === s.id ? "✓ Copied" : "Copy"}
+                      </button>
+                      <span style={{ fontSize: 11, color: "#555", minWidth: 90 }}>
+                        {s.expires_at ? `Expires ${new Date(s.expires_at).toLocaleDateString()}` : "No expiry"}
+                      </span>
+                      <button onClick={() => revokeShare(s.id)} style={S.btn("#3f0f0f22", "#f87171")}>Revoke</button>
+                    </div>
+                  ))
+                }
               </div>
             )}
 
@@ -1085,7 +1162,7 @@ function CockpitMetric({ label, value, color }) {
   );
 }
 
-function CreativeCockpit({ ads, creatives, dashType }) {
+export function CreativeCockpit({ ads, creatives, dashType }) {
   const isEcom = dashType === "ecom";
   const [sortKey, setSortKey] = useState(isEcom ? "roas_desc" : "spend_desc");
   const list = (ads || []).filter(a => a.spend > 0);

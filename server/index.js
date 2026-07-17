@@ -412,6 +412,20 @@ function detectGoal(adset) {
     action_types: [raw.toLowerCase()] };
 }
 
+// Group an account's campaigns by detected goal (used by authed + public routes)
+function computeGoalGroups(adsets) {
+  const campaignGoals = {};
+  for (const adset of adsets) {
+    if (!campaignGoals[adset.campaign_id]) campaignGoals[adset.campaign_id] = detectGoal(adset);
+  }
+  const groupMap = {};
+  for (const [campaignId, goal] of Object.entries(campaignGoals)) {
+    if (!groupMap[goal.key]) groupMap[goal.key] = { ...goal, campaign_ids: [] };
+    groupMap[goal.key].campaign_ids.push(campaignId);
+  }
+  return Object.values(groupMap);
+}
+
 app.get("/api/dashboards/:id/insights/campaigns", authMiddleware, async (req, res) => {
   const dashId = parseInt(req.params.id);
   if (!await checkDashboardAccess(req, res, dashId)) return;
@@ -502,20 +516,7 @@ app.get("/api/dashboards/:id/goal-groups", authMiddleware, async (req, res) => {
   try {
     const url = `${META_BASE}/${dash.act_id}/adsets?fields=campaign_id,campaign_name,optimization_goal,destination_type,promoted_object&limit=500&access_token=${META_TOKEN}`;
     const adsets = await fetchAllPages(url);
-    // Map each campaign to its goal (use first adset seen per campaign)
-    const campaignGoals = {};
-    for (const adset of adsets) {
-      if (!campaignGoals[adset.campaign_id]) {
-        campaignGoals[adset.campaign_id] = detectGoal(adset);
-      }
-    }
-    // Group campaigns by goal
-    const groupMap = {};
-    for (const [campaignId, goal] of Object.entries(campaignGoals)) {
-      if (!groupMap[goal.key]) groupMap[goal.key] = { ...goal, campaign_ids: [] };
-      groupMap[goal.key].campaign_ids.push(campaignId);
-    }
-    res.json(Object.values(groupMap));
+    res.json(computeGoalGroups(adsets));
   } catch (e) { res.status(500).json({ error: e.message, stack: e.stack?.split("\n")[0] }); }
 });
 
@@ -1047,6 +1048,95 @@ app.get("/api/dashboards/:id/organic/instagram", authMiddleware, async (req, res
 
     res.json({ insights, summary, media, igAvailableMetrics, igMetricErrors, demographics });
   } catch (e) { res.status(500).json({ error: e.message, stack: e.stack?.split("\n")[0] }); }
+});
+
+// ── Public Share Links ──────────────────────────────────
+
+async function canManageDashboard(req, dashId) {
+  if (req.user.role === "admin") return true;
+  const { data } = await supabase.from("dashboard_access")
+    .select("id").eq("dashboard_id", dashId).eq("user_id", req.user.id).eq("role", "manager").single();
+  return !!data;
+}
+
+app.get("/api/dashboards/:id/shares", authMiddleware, async (req, res) => {
+  const dashId = parseInt(req.params.id);
+  if (!await checkDashboardAccess(req, res, dashId)) return;
+  const { data, error } = await supabase.from("dashboard_shares")
+    .select("id, token, label, created_at, expires_at")
+    .eq("dashboard_id", dashId).eq("revoked", false)
+    .order("created_at", { ascending: false });
+  if (error) return res.status(500).json({ error: error.message });
+  const base = process.env.FRONTEND_URL || "";
+  res.json((data || []).map(s => ({ ...s, url: `${base}/share/${s.token}` })));
+});
+
+app.post("/api/dashboards/:id/shares", authMiddleware, async (req, res) => {
+  const dashId = parseInt(req.params.id);
+  if (!await checkDashboardAccess(req, res, dashId)) return;
+  if (!await canManageDashboard(req, dashId)) return res.status(403).json({ error: "Only admins or managers can create share links" });
+  const { label, expires_in_days } = req.body || {};
+  const token = crypto.randomBytes(24).toString("hex");
+  const expires_at = expires_in_days ? new Date(Date.now() + expires_in_days * 86400000).toISOString() : null;
+  const { data, error } = await supabase.from("dashboard_shares")
+    .insert({ dashboard_id: dashId, token, label: label || null, created_by: req.user.id, expires_at })
+    .select("id, token, label, created_at, expires_at").single();
+  if (error) return res.status(500).json({ error: error.message });
+  const base = process.env.FRONTEND_URL || "";
+  res.json({ ...data, url: `${base}/share/${data.token}` });
+});
+
+app.delete("/api/dashboards/:id/shares/:shareId", authMiddleware, async (req, res) => {
+  const dashId = parseInt(req.params.id);
+  if (!await checkDashboardAccess(req, res, dashId)) return;
+  if (!await canManageDashboard(req, dashId)) return res.status(403).json({ error: "Only admins or managers can revoke share links" });
+  await supabase.from("dashboard_shares").update({ revoked: true }).eq("id", req.params.shareId).eq("dashboard_id", dashId);
+  res.json({ success: true });
+});
+
+// Public read-only bundle — resolves a share token to live Meta data. No auth required.
+async function resolveShareToken(token) {
+  const { data: share } = await supabase.from("dashboard_shares")
+    .select("revoked, expires_at, dashboards(id, name, act_id, type, conversion_event)")
+    .eq("token", token).single();
+  if (!share || share.revoked || !share.dashboards) return null;
+  if (share.expires_at && new Date(share.expires_at) < new Date()) return null;
+  return share.dashboards;
+}
+
+app.get("/api/public/:token", async (req, res) => {
+  const dash = await resolveShareToken(req.params.token);
+  if (!dash) return res.status(404).json({ error: "This shared link is invalid, revoked, or expired" });
+  if (!["app", "lead", "ecom", "auto"].includes(dash.type))
+    return res.status(400).json({ error: "Public sharing is only available for Meta ad dashboards" });
+  const { since, until, campaign_ids } = req.query;
+  if (!since || !until) return res.status(400).json({ error: "since and until required" });
+  const type = dash.type;
+  const tr = encodeURIComponent(JSON.stringify({ since, until }));
+  const filter = buildCampaignFilter(campaign_ids);
+  const adFields = `ad_id,ad_name,adset_name,campaign_name,spend,impressions,reach,cpm,cost_per_unique_outbound_click,unique_outbound_clicks_ctr,actions,cost_per_action_type${(type === "ecom" || type === "auto") ? ",action_values" : ""}`;
+  try {
+    const [account, campaigns, ads, creativesRaw, adsetsForGoals] = await Promise.all([
+      fetchAllPages(`${META_BASE}/${dash.act_id}/insights?fields=${getFields(type)}&level=account&time_range=${tr}&time_increment=1&limit=100&access_token=${META_TOKEN}${filter}`),
+      fetchAllPages(`${META_BASE}/${dash.act_id}/insights?fields=campaign_id,campaign_name,${getFields(type)}&level=campaign&time_range=${tr}&limit=100&access_token=${META_TOKEN}${filter}`),
+      fetchAllPages(`${META_BASE}/${dash.act_id}/insights?fields=${adFields}&level=ad&time_range=${tr}&limit=100&access_token=${META_TOKEN}${filter}`),
+      fetchAllPages(`${META_BASE}/${dash.act_id}/ads?fields=id,name,creative{thumbnail_url,image_url,object_story_spec}&limit=500&access_token=${META_TOKEN}`).catch(() => []),
+      type === "auto"
+        ? fetchAllPages(`${META_BASE}/${dash.act_id}/adsets?fields=campaign_id,campaign_name,optimization_goal,destination_type,promoted_object&limit=500&access_token=${META_TOKEN}`).catch(() => [])
+        : Promise.resolve([]),
+    ]);
+    const creatives = creativesRaw.map(ad => {
+      const c = ad.creative || {};
+      const spec = c.object_story_spec || {};
+      const link = spec.link_data?.link || spec.video_data?.call_to_action?.value?.link || null;
+      return { id: ad.id, thumbnail_url: c.image_url || c.thumbnail_url || null, link };
+    });
+    res.json({
+      dashboard: { name: dash.name, type: dash.type, conversion_event: dash.conversion_event },
+      account, campaigns, ads, creatives,
+      goalGroups: type === "auto" ? computeGoalGroups(adsetsForGoals) : [],
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ── Start ───────────────────────────────────────────────
