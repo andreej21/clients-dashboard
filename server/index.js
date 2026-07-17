@@ -417,8 +417,14 @@ function detectGoal(adset) {
 function mapCreative(ad) {
   const c    = ad.creative || {};
   const spec = c.object_story_spec || {};
-  const data = spec.link_data || spec.video_data || spec.template_data || {};
-  const thumbnail_url = c.image_url || data.picture || c.thumbnail_url || null;
+  const data = spec.link_data || spec.video_data || spec.photo_data || spec.template_data || {};
+  const thumbnail_url =
+    c.image_url ||        // image ads (full res)
+    data.picture ||       // link_data thumbnail
+    data.image_url ||     // video_data thumbnail
+    data.url ||           // photo_data
+    c.thumbnail_url ||    // generic small preview (most reliable fallback)
+    null;
   // Link to the live Facebook post (shows the full ad + comments)
   let permalink = null;
   if (c.effective_object_story_id && c.effective_object_story_id.includes("_")) {
@@ -511,8 +517,13 @@ app.get("/api/dashboards/:id/ad-creatives", authMiddleware, async (req, res) => 
   try {
     const url = `${META_BASE}/${dash.act_id}/ads?fields=${CREATIVE_FIELDS}&limit=500&access_token=${META_TOKEN}`;
     const ads = await fetchAllPages(url);
-    res.json({ data: ads.map(mapCreative) });
-  } catch (e) { res.status(500).json({ error: e.message, stack: e.stack?.split("\n")[0] }); }
+    const data = ads.map(mapCreative);
+    const withThumb = data.filter(c => c.thumbnail_url).length;
+    const debug = { totalAds: ads.length, withThumb };
+    // When nothing resolved, surface a raw creative so we can see which fields Meta populated
+    if (withThumb === 0 && ads.length) debug.sampleCreative = ads[0].creative || "no creative field on ad";
+    res.json({ data, debug });
+  } catch (e) { res.json({ data: [], debug: { error: e.message } }); }
 });
 
 app.get("/api/dashboards/:id/goal-groups", authMiddleware, async (req, res) => {

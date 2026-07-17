@@ -186,6 +186,7 @@ export default function Dashboard({ auth, onLogout, myDashboards = [], folders =
   const [campaigns, setCampaigns]       = useState(null);
   const [adsets, setAdsets]             = useState(null);
   const [creatives, setCreatives]       = useState(null);
+  const [creativesDebug, setCreativesDebug] = useState(null);
   const [dashType, setDashType]         = useState("app");
   const [convEvent, setConvEvent]       = useState("app_install");
   const [loading, setLoading]           = useState(false);
@@ -269,12 +270,15 @@ export default function Dashboard({ auth, onLogout, myDashboards = [], folders =
     setRows(null); setAds(null); setCampaigns(null); setAdsets(null); setCreatives(null);
     setPrevTotals(null); setPrevRows(null);
     // Creative thumbnails (not date-ranged) — best-effort, non-blocking
+    setCreativesDebug(null);
     fetch(`${API}/dashboards/${activeDash.id}/ad-creatives`, { headers: h })
       .then(r => r.json())
       .then(cj => {
         const map = {};
         for (const c of (cj.data || [])) if (c.thumbnail_url) map[c.id] = c;
         setCreatives(map);
+        setCreativesDebug(cj.debug || null);
+        if (cj.debug) console.log("[ad-creatives debug]", cj.debug);
       })
       .catch(() => setCreatives({}));
     try {
@@ -840,7 +844,7 @@ export default function Dashboard({ auth, onLogout, myDashboards = [], folders =
                 : <div style={{ textAlign: "center", color: "#555", marginTop: 40, fontSize: 14 }}>No ad data returned</div>
             )}
             {tab === "creative" && rows && (
-              <CreativeCockpit ads={ads} creatives={creatives} dashType={dashType} />
+              <CreativeCockpit ads={ads} creatives={creatives} dashType={dashType} debug={creativesDebug} />
             )}
 
             {tab === "account" && totals && (<>
@@ -1169,7 +1173,7 @@ function CreativeThumb({ src, alt }) {
   return <img src={src} alt={alt} referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={() => setBroken(true)} />;
 }
 
-export function CreativeCockpit({ ads, creatives, dashType }) {
+export function CreativeCockpit({ ads, creatives, dashType, debug }) {
   const isEcom = dashType === "ecom";
   const [sortKey, setSortKey] = useState(isEcom ? "roas_desc" : "spend_desc");
   const list = (ads || []).filter(a => a.spend > 0);
@@ -1220,6 +1224,19 @@ export function CreativeCockpit({ ads, creatives, dashType }) {
         </div>
       </div>
       {creatives === null && <p style={{ color: "#555", fontSize: 12, marginBottom: 12 }}>Loading thumbnails…</p>}
+      {creatives !== null && debug && debug.withThumb === 0 && (
+        <div style={{ ...S.card, padding: "12px 16px", marginBottom: 14, border: "1px solid #ef444455", background: "#ef44440a" }}>
+          <p style={{ margin: "0 0 6px", fontSize: 12, color: "#f87171", fontWeight: 700 }}>⚠️ No thumbnails resolved</p>
+          {debug.error
+            ? <p style={{ margin: 0, fontSize: 12, color: "#aaa" }}>Meta API error: {debug.error}</p>
+            : <p style={{ margin: 0, fontSize: 12, color: "#aaa" }}>Checked {debug.totalAds} ads — Meta returned no usable image field. Raw sample of the first creative below (paste this to debug):</p>}
+          {debug.sampleCreative && (
+            <pre style={{ margin: "8px 0 0", padding: 10, background: "#000", borderRadius: 8, fontSize: 11, color: "#8b9cf8", overflowX: "auto", maxHeight: 220 }}>
+              {JSON.stringify(debug.sampleCreative, null, 2)}
+            </pre>
+          )}
+        </div>
+      )}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px,1fr))", gap: 14 }}>
         {sorted.map((a, i) => {
           const cr = creatives?.[a.id];
