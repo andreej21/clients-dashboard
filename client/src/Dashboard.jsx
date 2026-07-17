@@ -1162,6 +1162,13 @@ function CockpitMetric({ label, value, color }) {
   );
 }
 
+// Thumbnail that falls back to a placeholder if the src is missing or fails to load
+function CreativeThumb({ src, alt }) {
+  const [broken, setBroken] = useState(false);
+  if (!src || broken) return <span style={{ fontSize: 40, opacity: 0.25 }}>🖼️</span>;
+  return <img src={src} alt={alt} referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={() => setBroken(true)} />;
+}
+
 export function CreativeCockpit({ ads, creatives, dashType }) {
   const isEcom = dashType === "ecom";
   const [sortKey, setSortKey] = useState(isEcom ? "roas_desc" : "spend_desc");
@@ -1220,9 +1227,7 @@ export function CreativeCockpit({ ads, creatives, dashType }) {
           return (
             <div key={a.id || i} style={{ background: "#1e1e2e", border: `1px solid ${badge ? badge.color + "66" : "#2a2a3e"}`, borderRadius: 12, overflow: "hidden", display: "flex", flexDirection: "column" }}>
               <div style={{ position: "relative", background: "#13131f", aspectRatio: "1 / 1", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                {cr?.thumbnail_url
-                  ? <img src={cr.thumbnail_url} alt={a.name} referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={e => { e.currentTarget.style.display = "none"; }} />
-                  : <span style={{ fontSize: 40, opacity: 0.25 }}>🖼️</span>}
+                <CreativeThumb src={cr?.thumbnail_url} alt={a.name} />
                 {badge && <span style={{ position: "absolute", top: 8, left: 8, fontSize: 10, fontWeight: 700, color: badge.color, background: "#000000cc", borderRadius: 6, padding: "3px 8px" }}>{badge.label}</span>}
               </div>
               <div style={{ padding: "10px 12px", flex: 1, display: "flex", flexDirection: "column" }}>
@@ -1233,7 +1238,12 @@ export function CreativeCockpit({ ads, creatives, dashType }) {
                     ? <><CockpitMetric label="ROAS" value={fmtROAS(a.roas)} color="#fbbf24" /><CockpitMetric label="Revenue" value={fmtCurrency(a.revenue)} color="#34d399" /><CockpitMetric label="Purch." value={fmtNumber(a.conversions)} color="#10b981" /></>
                     : <><CockpitMetric label="Conv." value={fmtNumber(a.conversions)} color="#10b981" /><CockpitMetric label="CPA" value={a.conversionCost > 0 ? fmtCurrency(a.conversionCost) : "—"} color="#f59e0b" /><CockpitMetric label="CTR" value={fmtPercent(a.ctr)} color="#f97316" /></>}
                 </div>
-                {cr?.link && <a href={cr.link} target="_blank" rel="noreferrer" style={{ marginTop: 10, fontSize: 11, color: "#6366f1", textDecoration: "none" }}>Visit landing page ↗</a>}
+                {(cr?.permalink || cr?.landing) && (
+                  <div style={{ display: "flex", gap: 12, marginTop: 10, flexWrap: "wrap" }}>
+                    {cr?.permalink && <a href={cr.permalink} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "#4b9cf5", textDecoration: "none", fontWeight: 600 }}>👁 View on Facebook ↗</a>}
+                    {cr?.landing && <a href={cr.landing} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "#777", textDecoration: "none" }}>Landing page ↗</a>}
+                  </div>
+                )}
               </div>
             </div>
           );

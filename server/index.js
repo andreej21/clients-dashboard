@@ -412,6 +412,25 @@ function detectGoal(adset) {
     action_types: [raw.toLowerCase()] };
 }
 
+// Normalise an ad's creative into { id, thumbnail_url, permalink, landing }.
+// Tries several fields because Meta populates different ones per creative type.
+function mapCreative(ad) {
+  const c    = ad.creative || {};
+  const spec = c.object_story_spec || {};
+  const data = spec.link_data || spec.video_data || spec.template_data || {};
+  const thumbnail_url = c.image_url || data.picture || c.thumbnail_url || null;
+  // Link to the live Facebook post (shows the full ad + comments)
+  let permalink = null;
+  if (c.effective_object_story_id && c.effective_object_story_id.includes("_")) {
+    const [pageId, postId] = c.effective_object_story_id.split("_");
+    if (pageId && postId) permalink = `https://www.facebook.com/${pageId}/posts/${postId}`;
+  }
+  const landing = data.link || data.call_to_action?.value?.link || null;
+  return { id: ad.id, thumbnail_url, permalink, landing };
+}
+
+const CREATIVE_FIELDS = "id,name,creative{id,thumbnail_url,image_url,effective_object_story_id,object_story_spec}";
+
 // Group an account's campaigns by detected goal (used by authed + public routes)
 function computeGoalGroups(adsets) {
   const campaignGoals = {};
@@ -490,20 +509,9 @@ app.get("/api/dashboards/:id/ad-creatives", authMiddleware, async (req, res) => 
   const { data: dash } = await supabase.from("dashboards").select("act_id").eq("id", dashId).single();
   if (!dash) return res.status(404).json({ error: "Dashboard not found" });
   try {
-    const fields = "id,name,creative{thumbnail_url,image_url,object_story_spec}";
-    const url = `${META_BASE}/${dash.act_id}/ads?fields=${fields}&limit=500&access_token=${META_TOKEN}`;
+    const url = `${META_BASE}/${dash.act_id}/ads?fields=${CREATIVE_FIELDS}&limit=500&access_token=${META_TOKEN}`;
     const ads = await fetchAllPages(url);
-    const creatives = ads.map(ad => {
-      const c = ad.creative || {};
-      const spec = c.object_story_spec || {};
-      const link = spec.link_data?.link || spec.video_data?.call_to_action?.value?.link || null;
-      return {
-        id:            ad.id,
-        thumbnail_url: c.image_url || c.thumbnail_url || null,
-        link,
-      };
-    });
-    res.json({ data: creatives });
+    res.json({ data: ads.map(mapCreative) });
   } catch (e) { res.status(500).json({ error: e.message, stack: e.stack?.split("\n")[0] }); }
 });
 
@@ -1120,17 +1128,12 @@ app.get("/api/public/:token", async (req, res) => {
       fetchAllPages(`${META_BASE}/${dash.act_id}/insights?fields=${getFields(type)}&level=account&time_range=${tr}&time_increment=1&limit=100&access_token=${META_TOKEN}${filter}`),
       fetchAllPages(`${META_BASE}/${dash.act_id}/insights?fields=campaign_id,campaign_name,${getFields(type)}&level=campaign&time_range=${tr}&limit=100&access_token=${META_TOKEN}${filter}`),
       fetchAllPages(`${META_BASE}/${dash.act_id}/insights?fields=${adFields}&level=ad&time_range=${tr}&limit=100&access_token=${META_TOKEN}${filter}`),
-      fetchAllPages(`${META_BASE}/${dash.act_id}/ads?fields=id,name,creative{thumbnail_url,image_url,object_story_spec}&limit=500&access_token=${META_TOKEN}`).catch(() => []),
+      fetchAllPages(`${META_BASE}/${dash.act_id}/ads?fields=${CREATIVE_FIELDS}&limit=500&access_token=${META_TOKEN}`).catch(() => []),
       type === "auto"
         ? fetchAllPages(`${META_BASE}/${dash.act_id}/adsets?fields=campaign_id,campaign_name,optimization_goal,destination_type,promoted_object&limit=500&access_token=${META_TOKEN}`).catch(() => [])
         : Promise.resolve([]),
     ]);
-    const creatives = creativesRaw.map(ad => {
-      const c = ad.creative || {};
-      const spec = c.object_story_spec || {};
-      const link = spec.link_data?.link || spec.video_data?.call_to_action?.value?.link || null;
-      return { id: ad.id, thumbnail_url: c.image_url || c.thumbnail_url || null, link };
-    });
+    const creatives = creativesRaw.map(mapCreative);
     res.json({
       dashboard: { name: dash.name, type: dash.type, conversion_event: dash.conversion_event },
       account, campaigns, ads, creatives,
