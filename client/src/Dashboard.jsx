@@ -915,7 +915,8 @@ export default function Dashboard({ auth, onLogout, myDashboards = [], folders =
                 </div>
                 <CampaignTree structure={structure} campaigns={campaigns} adsets={adsets} ads={ads}
                   dashType={dashType} canManage={canManage} busyId={treeBusyId}
-                  onStatus={setEntityStatus} onBudget={setEntityBudget} />
+                  onStatus={setEntityStatus} onBudget={setEntityBudget}
+                  actId={activeDash?.act_id?.replace("act_", "")} />
               </>);
             })()}
             {tab === "adsets" && rows && (
@@ -1473,7 +1474,7 @@ function StatusSwitch({ on, disabled, busy, onToggle, title }) {
 }
 
 // Expandable campaign → ad set → ad hierarchy with live status/budget controls
-function CampaignTree({ structure, campaigns, adsets, ads, dashType, canManage, busyId, onStatus, onBudget }) {
+function CampaignTree({ structure, campaigns, adsets, ads, dashType, canManage, busyId, onStatus, onBudget, actId }) {
   const [openC, setOpenC] = useState(() => new Set());
   const [openA, setOpenA] = useState(() => new Set());
   const isEcom = dashType === "ecom";
@@ -1486,79 +1487,88 @@ function CampaignTree({ structure, campaigns, adsets, ads, dashType, canManage, 
   const perfAD = Object.fromEntries((ads || []).map(a => [a.id, a]));
   const toggleSet = (set, setter, id) => { const n = new Set(set); n.has(id) ? n.delete(id) : n.add(id); setter(n); };
 
-  const Metrics = ({ p }) => (
-    <div style={{ display: "flex", gap: 12, fontSize: 11, color: "#777", flexWrap: "wrap", justifyContent: "flex-end" }}>
-      <span>Spend <b style={{ color: "#8b5cf6" }}>{p ? fmtCurrency(p.spend) : "—"}</b></span>
-      {isEcom
-        ? <span>ROAS <b style={{ color: "#fbbf24" }}>{p ? fmtROAS(p.roas) : "—"}</b></span>
-        : <><span>Conv <b style={{ color: "#10b981" }}>{p ? fmtNumber(p.conversions) : "—"}</b></span>
-            <span>CPA <b style={{ color: "#f59e0b" }}>{p && p.conversionCost > 0 ? fmtCurrency(p.conversionCost) : "—"}</b></span></>}
-      <span>CTR <b style={{ color: "#bbb" }}>{p ? fmtPercent(p.ctr) : "—"}</b></span>
-      <span>Freq <b style={{ color: p && p.frequency >= 3 ? "#f97316" : "#888" }}>{p && p.frequency ? `${p.frequency.toFixed(1)}x` : "—"}</b></span>
-    </div>
-  );
+  const GRID = "minmax(150px,1fr) 104px 82px 66px 82px 58px 46px 26px";
+  const cellR = { fontSize: 11, textAlign: "right", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" };
+  const headStyle = { ...cellR, color: "#666", fontWeight: 700, fontSize: 10, letterSpacing: ".04em" };
 
-  const Budget = ({ entity }) => {
-    const b = entity.daily_budget != null ? { v: entity.daily_budget, t: "daily", sfx: "/day" }
-            : entity.lifetime_budget != null ? { v: entity.lifetime_budget, t: "lifetime", sfx: " life" } : null;
-    if (!b) return null;
-    return (
-      <span style={{ fontSize: 11, color: "#ddd", whiteSpace: "nowrap", flexShrink: 0 }}>
-        {fmtCurrency(b.v)}<span style={{ color: "#555" }}>{b.sfx}</span>
-        {canManage && <button onClick={() => onBudget(entity, b.t)} title="Edit budget" style={{ background: "none", border: "none", color: "#6366f1", cursor: "pointer", fontSize: 12, marginLeft: 3, padding: 0 }}>✎</button>}
-      </span>
-    );
+  const amUrl = (level, id) => {
+    const seg = level === 0 ? "campaigns" : level === 1 ? "adsets" : "ads";
+    const key = level === 0 ? "selected_campaign_ids" : level === 1 ? "selected_adset_ids" : "selected_ad_ids";
+    return `https://adsmanager.facebook.com/adsmanager/manage/${seg}?act=${actId}&${key}=${id}`;
   };
 
   const Row = ({ level, entity, perf, hasChildren, isOpen, onArrow }) => {
-    const pad = 10 + level * 22;
+    const pad = level * 20;
     const paused = entity.effective_status && entity.effective_status !== "ACTIVE";
     const bg = level === 0 ? "#13131f" : level === 1 ? "#ffffff04" : "transparent";
+    const b = entity.daily_budget != null ? { v: entity.daily_budget, t: "daily", sfx: "/d" }
+            : entity.lifetime_budget != null ? { v: entity.lifetime_budget, t: "lifetime", sfx: " life" } : null;
     return (
-      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", paddingLeft: pad, borderTop: "1px solid #1a1a2e", background: bg }}>
-        {hasChildren
-          ? <button onClick={onArrow} style={{ background: "none", border: "none", color: "#888", cursor: "pointer", fontSize: 10, width: 14, flexShrink: 0, padding: 0 }}>{isOpen ? "▼" : "▶"}</button>
-          : <span style={{ width: 14, flexShrink: 0 }} />}
-        <StatusSwitch on={entity.status === "ACTIVE"} disabled={!canManage} busy={busyId === entity.id}
-          onToggle={() => onStatus(entity, entity.status === "ACTIVE" ? "PAUSED" : "ACTIVE")}
-          title={canManage ? (entity.status === "ACTIVE" ? "Pause" : "Activate") : "Read-only"} />
-        <span title={entity.name} style={{ flex: 1, minWidth: 100, fontSize: level === 0 ? 13 : 12, fontWeight: level === 0 ? 700 : 500, color: paused ? "#777" : "#eee", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {entity.name}{paused && <span style={{ color: "#555", fontWeight: 400, marginLeft: 6, fontSize: 10 }}>paused</span>}
+      <div style={{ display: "grid", gridTemplateColumns: GRID, gap: 8, alignItems: "center", padding: "7px 12px", borderTop: "1px solid #1a1a2e", background: bg }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 7, paddingLeft: pad, minWidth: 0 }}>
+          {hasChildren
+            ? <button onClick={onArrow} style={{ background: "none", border: "none", color: "#888", cursor: "pointer", fontSize: 10, width: 12, flexShrink: 0, padding: 0 }}>{isOpen ? "▼" : "▶"}</button>
+            : <span style={{ width: 12, flexShrink: 0 }} />}
+          <StatusSwitch on={entity.status === "ACTIVE"} disabled={!canManage} busy={busyId === entity.id}
+            onToggle={() => onStatus(entity, entity.status === "ACTIVE" ? "PAUSED" : "ACTIVE")}
+            title={canManage ? (entity.status === "ACTIVE" ? "Pause" : "Activate") : "Read-only"} />
+          <span title={entity.name} style={{ minWidth: 0, fontSize: level === 0 ? 13 : 12, fontWeight: level === 0 ? 700 : 500, color: paused ? "#777" : "#eee", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {entity.name}{paused && <span style={{ color: "#555", fontWeight: 400, marginLeft: 6, fontSize: 10 }}>paused</span>}
+          </span>
+        </div>
+        <span style={{ ...cellR, color: "#ddd" }}>
+          {b ? <>{fmtCurrency(b.v)}<span style={{ color: "#555" }}>{b.sfx}</span>{canManage && <button onClick={() => onBudget(entity, b.t)} title="Edit budget" style={{ background: "none", border: "none", color: "#6366f1", cursor: "pointer", fontSize: 12, marginLeft: 3, padding: 0 }}>✎</button>}</> : "—"}
         </span>
-        <Budget entity={entity} />
-        <Metrics p={perf} />
+        <span style={{ ...cellR, color: "#8b5cf6", fontWeight: 700 }}>{perf ? fmtCurrency(perf.spend) : "—"}</span>
+        <span style={{ ...cellR, color: isEcom ? "#fbbf24" : "#10b981", fontWeight: 700 }}>{perf ? (isEcom ? fmtROAS(perf.roas) : fmtNumber(perf.conversions)) : "—"}</span>
+        <span style={{ ...cellR, color: isEcom ? "#34d399" : "#f59e0b" }}>{perf ? (isEcom ? fmtCurrency(perf.revenue) : (perf.conversionCost > 0 ? fmtCurrency(perf.conversionCost) : "—")) : "—"}</span>
+        <span style={{ ...cellR, color: "#bbb" }}>{perf ? fmtPercent(perf.ctr) : "—"}</span>
+        <span style={{ ...cellR, color: perf && perf.frequency >= 3 ? "#f97316" : "#999" }}>{perf && perf.frequency ? `${perf.frequency.toFixed(1)}x` : "—"}</span>
+        <a href={amUrl(level, entity.id)} target="_blank" rel="noreferrer" title="Open in Ads Manager" style={{ textAlign: "center", color: "#4b9cf5", textDecoration: "none", fontSize: 13 }}>↗</a>
       </div>
     );
   };
 
   return (
     <div style={{ ...S.card, overflow: "hidden" }}>
-      <div style={{ padding: "12px 14px", borderBottom: "1px solid #2a2a3e", display: "flex", alignItems: "center", gap: 8 }}>
+      <div style={{ padding: "12px 14px", borderBottom: "1px solid #2a2a3e", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
         <p style={{ margin: 0, fontWeight: 700, fontSize: 14 }}>🗂️ Campaign Structure</p>
-        <span style={{ fontSize: 11, color: "#555" }}>· expand to drill in{canManage ? " · toggle to pause/activate · ✎ to edit budget (live)" : ""}</span>
+        <span style={{ fontSize: 11, color: "#555" }}>· expand to drill in{canManage ? " · toggle to pause/activate · ✎ edit budget (live)" : ""} · ↗ Ads Manager</span>
       </div>
       <div style={{ overflowX: "auto" }}>
-        {structure.campaigns.map(c => {
-          const cOpen = openC.has(c.id);
-          const cAdsets = structure.adsets.filter(a => a.campaign_id === c.id);
-          return (
-            <div key={c.id}>
-              <Row level={0} entity={c} perf={perfC[c.id]} hasChildren={cAdsets.length > 0} isOpen={cOpen} onArrow={() => toggleSet(openC, setOpenC, c.id)} />
-              {cOpen && cAdsets.map(as => {
-                const aOpen = openA.has(as.id);
-                const asAds = structure.ads.filter(ad => ad.adset_id === as.id);
-                return (
-                  <div key={as.id}>
-                    <Row level={1} entity={as} perf={perfAS[as.id]} hasChildren={asAds.length > 0} isOpen={aOpen} onArrow={() => toggleSet(openA, setOpenA, as.id)} />
-                    {aOpen && asAds.map(ad => (
-                      <Row key={ad.id} level={2} entity={ad} perf={perfAD[ad.id]} hasChildren={false} />
-                    ))}
-                  </div>
-                );
-              })}
-            </div>
-          );
-        })}
+        <div style={{ minWidth: 700 }}>
+          <div style={{ display: "grid", gridTemplateColumns: GRID, gap: 8, alignItems: "center", padding: "8px 12px", background: "#13131f", borderBottom: "1px solid #2a2a3e", position: "sticky", top: 0 }}>
+            <span style={{ ...headStyle, textAlign: "left" }}>NAME</span>
+            <span style={headStyle}>BUDGET</span>
+            <span style={headStyle}>SPEND</span>
+            <span style={headStyle}>{isEcom ? "ROAS" : "CONV"}</span>
+            <span style={headStyle}>{isEcom ? "REVENUE" : "CPA"}</span>
+            <span style={headStyle}>CTR</span>
+            <span style={headStyle}>FREQ</span>
+            <span style={headStyle} />
+          </div>
+          {structure.campaigns.map(c => {
+            const cOpen = openC.has(c.id);
+            const cAdsets = structure.adsets.filter(a => a.campaign_id === c.id);
+            return (
+              <div key={c.id}>
+                <Row level={0} entity={c} perf={perfC[c.id]} hasChildren={cAdsets.length > 0} isOpen={cOpen} onArrow={() => toggleSet(openC, setOpenC, c.id)} />
+                {cOpen && cAdsets.map(as => {
+                  const aOpen = openA.has(as.id);
+                  const asAds = structure.ads.filter(ad => ad.adset_id === as.id);
+                  return (
+                    <div key={as.id}>
+                      <Row level={1} entity={as} perf={perfAS[as.id]} hasChildren={asAds.length > 0} isOpen={aOpen} onArrow={() => toggleSet(openA, setOpenA, as.id)} />
+                      {aOpen && asAds.map(ad => (
+                        <Row key={ad.id} level={2} entity={ad} perf={perfAD[ad.id]} hasChildren={false} />
+                      ))}
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
