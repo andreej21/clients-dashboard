@@ -1189,7 +1189,8 @@ function CreativeThumb({ creative, alt, hdFetcher }) {
   }, [creative?.id, creative?.needsHd, hdFetcher]);
   const src = hd || creative?.thumbnail_url;
   if (!src || broken) return <span style={{ fontSize: 40, opacity: 0.25 }}>🖼️</span>;
-  return <img src={src} alt={alt} loading="lazy" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={() => setBroken(true)} />;
+  // absolutely positioned so it fills the square box and doesn't stretch the card
+  return <img src={src} alt={alt} loading="lazy" referrerPolicy="no-referrer" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} onError={() => setBroken(true)} />;
 }
 
 const COCKPIT_PER_PAGE = 12;
@@ -1269,7 +1270,7 @@ export function CreativeCockpit({ ads, creatives, dashType, debug, hdFetcher }) 
           const badge = badgeFor(a);
           return (
             <div key={a.id || i} style={{ background: "#1e1e2e", border: `1px solid ${badge ? badge.color + "66" : "#2a2a3e"}`, borderRadius: 12, overflow: "hidden", display: "flex", flexDirection: "column" }}>
-              <div style={{ position: "relative", background: "#13131f", aspectRatio: "1 / 1", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <div style={{ position: "relative", background: "#13131f", aspectRatio: "1 / 1", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center" }}>
                 <CreativeThumb creative={cr} alt={a.name} hdFetcher={hdFetcher} />
                 {badge && <span style={{ position: "absolute", top: 8, left: 8, fontSize: 10, fontWeight: 700, color: badge.color, background: "#000000cc", borderRadius: 6, padding: "3px 8px" }}>{badge.label}</span>}
               </div>
