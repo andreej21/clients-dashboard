@@ -185,6 +185,7 @@ export default function Dashboard({ auth, onLogout, myDashboards = [], folders =
   const [ads, setAds]                   = useState(null);
   const [campaigns, setCampaigns]       = useState(null);
   const [adsets, setAdsets]             = useState(null);
+  const [creatives, setCreatives]       = useState(null);
   const [dashType, setDashType]         = useState("app");
   const [convEvent, setConvEvent]       = useState("app_install");
   const [loading, setLoading]           = useState(false);
@@ -259,8 +260,17 @@ export default function Dashboard({ auth, onLogout, myDashboards = [], folders =
   const fetchData = useCallback(async (goalKeyOverride) => {
     if (!activeDash) return;
     setLoading(true); setError("");
-    setRows(null); setAds(null); setCampaigns(null); setAdsets(null);
+    setRows(null); setAds(null); setCampaigns(null); setAdsets(null); setCreatives(null);
     setPrevTotals(null); setPrevRows(null);
+    // Creative thumbnails (not date-ranged) — best-effort, non-blocking
+    fetch(`${API}/dashboards/${activeDash.id}/ad-creatives`, { headers: h })
+      .then(r => r.json())
+      .then(cj => {
+        const map = {};
+        for (const c of (cj.data || [])) if (c.thumbnail_url) map[c.id] = c;
+        setCreatives(map);
+      })
+      .catch(() => setCreatives({}));
     try {
       const goalKey = goalKeyOverride !== undefined ? goalKeyOverride : activeGoalKey;
       const activeGoal = goalGroups?.find(g => g.key === goalKey);
@@ -652,6 +662,7 @@ export default function Dashboard({ auth, onLogout, myDashboards = [], folders =
                   { key: "campaigns", label: `🎯 Campaigns${campaigns ? ` (${campaigns.length})` : ""}` },
                   { key: "adsets",    label: `📁 Ad Sets${adsets ? ` (${adsets.length})` : ""}` },
                   { key: "ads",       label: `🎨 Ads${ads ? ` (${ads.filter(a => a.spend > 0).length})` : ""}` },
+                  { key: "creative",  label: `🖼️ Creatives` },
                 ].map(t => (
                   <button key={t.key} onClick={() => setTab(t.key)} style={{
                     background: tab === t.key ? "#6366f1" : "#2a2a3e", border: "none", borderRadius: 8,
@@ -750,6 +761,9 @@ export default function Dashboard({ auth, onLogout, myDashboards = [], folders =
               ads?.filter(a => a.spend > 0).length > 0
                 ? <BreakdownTable rows={ads.filter(a => a.spend > 0)} nameLabel="Ad" subLabel="Ad Set" subKey="adsetName" dashType={dashType} convEvent={convEvent} />
                 : <div style={{ textAlign: "center", color: "#555", marginTop: 40, fontSize: 14 }}>No ad data returned</div>
+            )}
+            {tab === "creative" && rows && (
+              <CreativeCockpit ads={ads} creatives={creatives} dashType={dashType} />
             )}
 
             {tab === "account" && totals && (<>
@@ -1059,6 +1073,96 @@ export default function Dashboard({ auth, onLogout, myDashboards = [], folders =
         </div>
       </div>
     </>
+  );
+}
+
+function CockpitMetric({ label, value, color }) {
+  return (
+    <div>
+      <p style={{ margin: 0, fontSize: 9, color: "#555", letterSpacing: ".04em" }}>{label.toUpperCase()}</p>
+      <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color }}>{value}</p>
+    </div>
+  );
+}
+
+function CreativeCockpit({ ads, creatives, dashType }) {
+  const isEcom = dashType === "ecom";
+  const [sortKey, setSortKey] = useState(isEcom ? "roas_desc" : "spend_desc");
+  const list = (ads || []).filter(a => a.spend > 0);
+
+  // Benchmarks used to award badges
+  const convAds  = list.filter(a => a.conversions > 0);
+  const avgCpa   = convAds.length ? convAds.reduce((s, a) => s + a.conversionCost, 0) / convAds.length : 0;
+  const avgSpend = list.length ? list.reduce((s, a) => s + a.spend, 0) / list.length : 0;
+  const roasAds  = list.filter(a => a.roas > 0);
+  const avgRoas  = roasAds.length ? roasAds.reduce((s, a) => s + a.roas, 0) / roasAds.length : 0;
+
+  const badgeFor = a => {
+    if (isEcom) {
+      if (a.roas > 0 && avgRoas > 0 && a.roas >= avgRoas * 1.3) return { label: "🏆 Top ROAS", color: "#10b981" };
+      if (a.spend >= avgSpend && (a.roas === 0 || a.roas < avgRoas * 0.5)) return { label: "💸 Draining", color: "#ef4444" };
+    } else {
+      if (a.conversions > 0 && avgCpa > 0 && a.conversionCost <= avgCpa * 0.7) return { label: "🏆 Winner", color: "#10b981" };
+      if (a.spend >= avgSpend * 1.2 && a.conversions === 0)                    return { label: "💸 No conv.", color: "#ef4444" };
+      if (a.conversions > 0 && avgCpa > 0 && a.conversionCost >= avgCpa * 1.5) return { label: "⚠️ High CPA", color: "#f59e0b" };
+    }
+    return null;
+  };
+
+  const sorts = [
+    { key: "spend_desc", label: "Spend" },
+    ...(isEcom
+      ? [{ key: "roas_desc", label: "ROAS" }, { key: "revenue_desc", label: "Revenue" }]
+      : [{ key: "conversions_desc", label: "Conversions" }, { key: "conversionCost_asc", label: "Best CPA" }]),
+    { key: "ctr_desc", label: "CTR" },
+  ];
+  const sorted = [...list].sort((a, b) => {
+    const [k, dir] = sortKey.split("_");
+    if (dir === "asc") { const v = r => (!r[k] || r[k] === 0) ? Infinity : r[k]; return v(a) - v(b); }
+    return (b[k] || 0) - (a[k] || 0);
+  });
+
+  if (!list.length) return <div style={{ textAlign: "center", color: "#555", marginTop: 40, fontSize: 14 }}>No ads with spend in this period</div>;
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+        <p style={{ margin: 0, fontWeight: 700, fontSize: 14 }}>🖼️ Creative Cockpit <span style={{ color: "#555", fontWeight: 400, fontSize: 12 }}>· {list.length} ads · benchmarked vs account avg</span></p>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+          <span style={{ fontSize: 11, color: "#555" }}>Sort:</span>
+          {sorts.map(s => (
+            <button key={s.key} onClick={() => setSortKey(s.key)} style={{ background: sortKey === s.key ? "#6366f1" : "#2a2a3e", border: "none", borderRadius: 6, padding: "5px 10px", color: sortKey === s.key ? "#fff" : "#aaa", cursor: "pointer", fontSize: 11 }}>{s.label}</button>
+          ))}
+        </div>
+      </div>
+      {creatives === null && <p style={{ color: "#555", fontSize: 12, marginBottom: 12 }}>Loading thumbnails…</p>}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px,1fr))", gap: 14 }}>
+        {sorted.map((a, i) => {
+          const cr = creatives?.[a.id];
+          const badge = badgeFor(a);
+          return (
+            <div key={a.id || i} style={{ background: "#1e1e2e", border: `1px solid ${badge ? badge.color + "66" : "#2a2a3e"}`, borderRadius: 12, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+              <div style={{ position: "relative", background: "#13131f", aspectRatio: "1 / 1", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                {cr?.thumbnail_url
+                  ? <img src={cr.thumbnail_url} alt={a.name} referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={e => { e.currentTarget.style.display = "none"; }} />
+                  : <span style={{ fontSize: 40, opacity: 0.25 }}>🖼️</span>}
+                {badge && <span style={{ position: "absolute", top: 8, left: 8, fontSize: 10, fontWeight: 700, color: badge.color, background: "#000000cc", borderRadius: 6, padding: "3px 8px" }}>{badge.label}</span>}
+              </div>
+              <div style={{ padding: "10px 12px", flex: 1, display: "flex", flexDirection: "column" }}>
+                <p style={{ margin: "0 0 8px", fontSize: 12, fontWeight: 600, color: "#ddd", lineHeight: 1.3, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }} title={a.name}>{a.name}</p>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 10px", marginTop: "auto" }}>
+                  <CockpitMetric label="Spend" value={fmtCurrency(a.spend)} color="#8b5cf6" />
+                  {isEcom
+                    ? <><CockpitMetric label="ROAS" value={fmtROAS(a.roas)} color="#fbbf24" /><CockpitMetric label="Revenue" value={fmtCurrency(a.revenue)} color="#34d399" /><CockpitMetric label="Purch." value={fmtNumber(a.conversions)} color="#10b981" /></>
+                    : <><CockpitMetric label="Conv." value={fmtNumber(a.conversions)} color="#10b981" /><CockpitMetric label="CPA" value={a.conversionCost > 0 ? fmtCurrency(a.conversionCost) : "—"} color="#f59e0b" /><CockpitMetric label="CTR" value={fmtPercent(a.ctr)} color="#f97316" /></>}
+                </div>
+                {cr?.link && <a href={cr.link} target="_blank" rel="noreferrer" style={{ marginTop: 10, fontSize: 11, color: "#6366f1", textDecoration: "none" }}>Visit landing page ↗</a>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 

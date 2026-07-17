@@ -469,6 +469,30 @@ app.get("/api/dashboards/:id/insights/ads", authMiddleware, async (req, res) => 
   } catch (e) { res.status(500).json({ error: e.message, stack: e.stack?.split("\n")[0] }); }
 });
 
+// Ad creatives (thumbnails/images) for the Creative Cockpit — merged client-side with ad insights by ad_id
+app.get("/api/dashboards/:id/ad-creatives", authMiddleware, async (req, res) => {
+  const dashId = parseInt(req.params.id);
+  if (!await checkDashboardAccess(req, res, dashId)) return;
+  const { data: dash } = await supabase.from("dashboards").select("act_id").eq("id", dashId).single();
+  if (!dash) return res.status(404).json({ error: "Dashboard not found" });
+  try {
+    const fields = "id,name,creative{thumbnail_url,image_url,object_story_spec}";
+    const url = `${META_BASE}/${dash.act_id}/ads?fields=${fields}&limit=500&access_token=${META_TOKEN}`;
+    const ads = await fetchAllPages(url);
+    const creatives = ads.map(ad => {
+      const c = ad.creative || {};
+      const spec = c.object_story_spec || {};
+      const link = spec.link_data?.link || spec.video_data?.call_to_action?.value?.link || null;
+      return {
+        id:            ad.id,
+        thumbnail_url: c.image_url || c.thumbnail_url || null,
+        link,
+      };
+    });
+    res.json({ data: creatives });
+  } catch (e) { res.status(500).json({ error: e.message, stack: e.stack?.split("\n")[0] }); }
+});
+
 app.get("/api/dashboards/:id/goal-groups", authMiddleware, async (req, res) => {
   const dashId = parseInt(req.params.id);
   if (!await checkDashboardAccess(req, res, dashId)) return;
