@@ -509,7 +509,7 @@ app.get("/api/dashboards/:id/ad-creatives", authMiddleware, async (req, res) => 
   const { data: dash } = await supabase.from("dashboards").select("act_id").eq("id", dashId).single();
   if (!dash) return res.status(404).json({ error: "Dashboard not found" });
   try {
-    const url = `${META_BASE}/${dash.act_id}/ads?fields=${CREATIVE_FIELDS}&limit=100&access_token=${META_TOKEN}`;
+    const url = `${META_BASE}/${dash.act_id}/ads?fields=${CREATIVE_FIELDS}&limit=100&thumbnail_width=640&thumbnail_height=640&access_token=${META_TOKEN}`;
     const ads = await fetchAllPages(url);
     const data = ads.map(mapCreative);
     const withThumb = data.filter(c => c.thumbnail_url).length;
@@ -1133,7 +1133,7 @@ app.get("/api/public/:token", async (req, res) => {
       fetchAllPages(`${META_BASE}/${dash.act_id}/insights?fields=${getFields(type)}&level=account&time_range=${tr}&time_increment=1&limit=100&access_token=${META_TOKEN}${filter}`),
       fetchAllPages(`${META_BASE}/${dash.act_id}/insights?fields=campaign_id,campaign_name,${getFields(type)}&level=campaign&time_range=${tr}&limit=100&access_token=${META_TOKEN}${filter}`),
       fetchAllPages(`${META_BASE}/${dash.act_id}/insights?fields=${adFields}&level=ad&time_range=${tr}&limit=100&access_token=${META_TOKEN}${filter}`),
-      fetchAllPages(`${META_BASE}/${dash.act_id}/ads?fields=${CREATIVE_FIELDS}&limit=100&access_token=${META_TOKEN}`).catch(() => []),
+      fetchAllPages(`${META_BASE}/${dash.act_id}/ads?fields=${CREATIVE_FIELDS}&limit=100&thumbnail_width=640&thumbnail_height=640&access_token=${META_TOKEN}`).catch(() => []),
       type === "auto"
         ? fetchAllPages(`${META_BASE}/${dash.act_id}/adsets?fields=campaign_id,campaign_name,optimization_goal,destination_type,promoted_object&limit=500&access_token=${META_TOKEN}`).catch(() => [])
         : Promise.resolve([]),
