@@ -415,11 +415,18 @@ function detectGoal(adset) {
 // Normalise an ad's creative into { id, thumbnail_url, permalink, landing }.
 // Tries several fields because Meta populates different ones per creative type.
 function mapCreative(ad) {
-  const c = ad.creative || {};
-  // thumbnail_url is a lightweight generic preview present for image AND video ads;
-  // image_url is higher-res when available. We deliberately avoid object_story_spec —
-  // requesting it in bulk trips Meta's "reduce the amount of data" limit.
-  const thumbnail_url = c.image_url || c.thumbnail_url || null;
+  const c    = ad.creative || {};
+  const spec = c.object_story_spec || {};
+  // Full-res, advertiser-uploaded images (only the specific sub-fields — requesting
+  // the whole object_story_spec in bulk trips Meta's "reduce the amount of data" limit):
+  const videoCover = spec.video_data?.image_url;  // video ad cover image (usually 1080px)
+  const linkImage  = spec.link_data?.picture;     // image/link ad picture
+  const thumbnail_url =
+    c.image_url ||        // image ads — full res
+    videoCover ||         // video ads — full-res cover
+    linkImage ||          // link ads
+    c.thumbnail_url ||    // last-resort low-res preview
+    null;
   // Link to the live Facebook post (shows the full ad + comments)
   let permalink = null;
   if (c.effective_object_story_id && c.effective_object_story_id.includes("_")) {
@@ -429,7 +436,7 @@ function mapCreative(ad) {
   return { id: ad.id, thumbnail_url, permalink, landing: null };
 }
 
-const CREATIVE_FIELDS = "id,name,creative{id,thumbnail_url,image_url,effective_object_story_id}";
+const CREATIVE_FIELDS = "id,name,creative{id,thumbnail_url,image_url,effective_object_story_id,object_story_spec{video_data{image_url},link_data{picture}}}";
 
 // Group an account's campaigns by detected goal (used by authed + public routes)
 function computeGoalGroups(adsets) {
