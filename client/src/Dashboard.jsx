@@ -1487,7 +1487,7 @@ function CampaignTree({ structure, campaigns, adsets, ads, dashType, canManage, 
   const perfAD = Object.fromEntries((ads || []).map(a => [a.id, a]));
   const toggleSet = (set, setter, id) => { const n = new Set(set); n.has(id) ? n.delete(id) : n.add(id); setter(n); };
 
-  const GRID = "minmax(150px,1fr) 104px 82px 66px 82px 58px 46px 26px";
+  const GRID = "minmax(150px,1fr) 104px 82px 66px 82px 58px 46px";
   const cellR = { fontSize: 11, textAlign: "right", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" };
   const headStyle = { ...cellR, color: "#666", fontWeight: 700, fontSize: 10, letterSpacing: ".04em" };
 
@@ -1515,6 +1515,7 @@ function CampaignTree({ structure, campaigns, adsets, ads, dashType, canManage, 
           <span title={entity.name} style={{ minWidth: 0, fontSize: level === 0 ? 13 : 12, fontWeight: level === 0 ? 700 : 500, color: paused ? "#777" : "#eee", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {entity.name}{paused && <span style={{ color: "#555", fontWeight: 400, marginLeft: 6, fontSize: 10 }}>paused</span>}
           </span>
+          <a href={amUrl(level, entity.id)} target="_blank" rel="noreferrer" title="Open in Ads Manager" style={{ color: "#4b9cf5", textDecoration: "none", fontSize: 12, flexShrink: 0 }}>↗</a>
         </div>
         <span style={{ ...cellR, color: "#ddd" }}>
           {b ? <>{fmtCurrency(b.v)}<span style={{ color: "#555" }}>{b.sfx}</span>{canManage && <button onClick={() => onBudget(entity, b.t)} title="Edit budget" style={{ background: "none", border: "none", color: "#6366f1", cursor: "pointer", fontSize: 12, marginLeft: 3, padding: 0 }}>✎</button>}</> : "—"}
@@ -1524,7 +1525,6 @@ function CampaignTree({ structure, campaigns, adsets, ads, dashType, canManage, 
         <span style={{ ...cellR, color: isEcom ? "#34d399" : "#f59e0b" }}>{perf ? (isEcom ? fmtCurrency(perf.revenue) : (perf.conversionCost > 0 ? fmtCurrency(perf.conversionCost) : "—")) : "—"}</span>
         <span style={{ ...cellR, color: "#bbb" }}>{perf ? fmtPercent(perf.ctr) : "—"}</span>
         <span style={{ ...cellR, color: perf && perf.frequency >= 3 ? "#f97316" : "#999" }}>{perf && perf.frequency ? `${perf.frequency.toFixed(1)}x` : "—"}</span>
-        <a href={amUrl(level, entity.id)} target="_blank" rel="noreferrer" title="Open in Ads Manager" style={{ textAlign: "center", color: "#4b9cf5", textDecoration: "none", fontSize: 13 }}>↗</a>
       </div>
     );
   };
@@ -1545,7 +1545,6 @@ function CampaignTree({ structure, campaigns, adsets, ads, dashType, canManage, 
             <span style={headStyle}>{isEcom ? "REVENUE" : "CPA"}</span>
             <span style={headStyle}>CTR</span>
             <span style={headStyle}>FREQ</span>
-            <span style={headStyle} />
           </div>
           {structure.campaigns.map(c => {
             const cOpen = openC.has(c.id);
