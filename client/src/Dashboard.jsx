@@ -87,6 +87,34 @@ function computeTotals(rows) {
   return t;
 }
 
+// Month-end pacing forecast from the selected period's daily run-rate.
+// Projects month-to-date actuals + (avg/day × remaining days of the month).
+function computeForecast(rows) {
+  if (!rows || rows.length === 0) return null;
+  const days = rows.length;
+  const avg = k => rows.reduce((s, r) => s + (r[k] || 0), 0) / days;
+  const sum = (arr, k) => arr.reduce((s, r) => s + (r[k] || 0), 0);
+  const lastDate = new Date(rows[rows.length - 1].date + "T12:00:00");
+  const y = lastDate.getFullYear(), mo = lastDate.getMonth();
+  const daysInMonth   = new Date(y, mo + 1, 0).getDate();
+  const dayOfMonth    = lastDate.getDate();
+  const remainingDays = Math.max(0, daysInMonth - dayOfMonth);
+  const mtd      = rows.filter(r => { const d = new Date(r.date + "T12:00:00"); return d.getMonth() === mo && d.getFullYear() === y; });
+  const projSpend = sum(mtd, "spend")       + avg("spend")       * remainingDays;
+  const projConv  = sum(mtd, "conversions") + avg("conversions") * remainingDays;
+  const projRev   = sum(mtd, "revenue")     + avg("revenue")     * remainingDays;
+  return {
+    days, remainingDays, daysInMonth, dayOfMonth,
+    monthLabel:    lastDate.toLocaleDateString("en-US", { month: "long", year: "numeric" }),
+    monthEndLabel: new Date(y, mo, daysInMonth).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+    avgSpend: avg("spend"), avgConv: avg("conversions"),
+    projSpend, projConv, projRev,
+    projCpa:  projConv  > 0 ? projSpend / projConv : 0,
+    projRoas: projSpend > 0 ? projRev / projSpend : 0,
+    mtdSpend: sum(mtd, "spend"), mtdConv: sum(mtd, "conversions"), mtdRev: sum(mtd, "revenue"),
+  };
+}
+
 const S = {
   card: { background: "#1e1e2e", border: "1px solid #2a2a3e", borderRadius: 12 },
   inp:  { background: "#13131f", border: "1px solid #2a2a3e", borderRadius: 8, padding: "9px 12px", color: "#fff", fontSize: 13, outline: "none" },
@@ -164,6 +192,7 @@ export default function Dashboard({ auth, onLogout, myDashboards = [], folders =
   const [activeMetric, setActive]       = useState("spend");
   const [sortKey, setSortKey]           = useState("conversionCost_asc");
   const [compare, setCompare]           = useState(false);
+  const [forecast, setForecast]         = useState(false);
   const [prevTotals, setPrevTotals]     = useState(null);
   const [prevRows, setPrevRows]         = useState(null);
   const [annotations, setAnnotations]   = useState([]);
@@ -318,6 +347,25 @@ export default function Dashboard({ auth, onLogout, myDashboards = [], folders =
 
   const activeMeta = metrics.find(m => m.key === activeMetric) || metrics[0];
   const visibleAnnotations = annotations.filter(a => a.date >= startDate && a.date <= endDate);
+
+  const fc = forecast && rows && rows.length > 1 ? computeForecast(rows) : null;
+  const chartData = (() => {
+    if (!rows) return [];
+    const base = rows.map((r, i) => ({ ...r, prev: prevRows?.[i]?.[activeMetric] ?? null }));
+    if (!fc || fc.remainingDays <= 0 || !base.length) return base;
+    const projVal = rows.reduce((s, r) => s + (r[activeMetric] || 0), 0) / rows.length;
+    base[base.length - 1] = { ...base[base.length - 1], projected: base[base.length - 1][activeMetric] };
+    const last = new Date(rows[rows.length - 1].date + "T12:00:00");
+    for (let i = 1; i <= fc.remainingDays; i++) {
+      const d = new Date(last); d.setDate(d.getDate() + i);
+      base.push({
+        date: toYMD(d),
+        label: d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }),
+        projected: projVal,
+      });
+    }
+    return base;
+  })();
 
   const genInsights = () => {
     if (!rows || rows.length === 0) return [];
@@ -543,6 +591,12 @@ export default function Dashboard({ auth, onLogout, myDashboards = [], folders =
                   }}>
                     {compare ? "⚡ Comparing" : "Compare"}
                   </button>
+                  <button onClick={() => setForecast(f => !f)} style={{
+                    ...S.btn(forecast ? "#22d3ee22" : "#2a2a3e", forecast ? "#22d3ee" : "#aaa"),
+                    border: `1px solid ${forecast ? "#22d3ee" : "transparent"}`,
+                  }}>
+                    {forecast ? "🔮 Forecasting" : "Forecast"}
+                  </button>
                   <button onClick={fetchData} disabled={loading || !activeDash} style={{ ...S.btn("#6366f1", "#fff"), opacity: loading ? 0.6 : 1, fontSize: 13 }}>
                     {loading ? "Loading…" : "Fetch Data"}
                   </button>
@@ -716,6 +770,35 @@ export default function Dashboard({ auth, onLogout, myDashboards = [], folders =
                   </div>
                 );
               })()}
+              {fc && (() => {
+                const isEcom = dashType === "ecom";
+                const tiles = [
+                  { label: "Proj. Spend", value: fmtCurrency(fc.projSpend), mtd: `${fmtCurrency(fc.mtdSpend)} so far`, color: "#6366f1" },
+                  { label: isEcom ? "Proj. Purchases" : "Proj. Conversions", value: fmtNumber(Math.round(fc.projConv)), mtd: `${fmtNumber(fc.mtdConv)} so far`, color: "#10b981" },
+                  { label: "Proj. CPA", value: fc.projCpa > 0 ? fmtCurrency(fc.projCpa) : "—", mtd: `${fmtCurrency(fc.avgSpend)}/day avg`, color: "#f59e0b" },
+                  ...(isEcom ? [
+                    { label: "Proj. Revenue", value: fmtCurrency(fc.projRev), mtd: `${fmtCurrency(fc.mtdRev)} so far`, color: "#34d399" },
+                    { label: "Proj. ROAS", value: fmtROAS(fc.projRoas), mtd: "at current pace", color: "#fbbf24" },
+                  ] : []),
+                ];
+                return (
+                  <div style={{ ...S.card, padding: "16px 18px", marginBottom: 20, border: "1px solid #22d3ee44", background: "#22d3ee0a" }}>
+                    <p style={{ margin: "0 0 3px", fontWeight: 700, fontSize: 14, color: "#22d3ee" }}>🔮 {fc.monthLabel} Forecast</p>
+                    <p style={{ margin: "0 0 14px", fontSize: 11, color: "#666" }}>
+                      Projected through {fc.monthEndLabel} · {fc.remainingDays} day{fc.remainingDays !== 1 ? "s" : ""} left · based on {fc.days}-day run-rate
+                    </p>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px,1fr))", gap: 12 }}>
+                      {tiles.map(t => (
+                        <div key={t.label} style={{ background: "#13131f", borderRadius: 10, padding: "12px 14px" }}>
+                          <p style={{ margin: "0 0 4px", fontSize: 10, color: "#666", fontWeight: 600, letterSpacing: ".04em" }}>{t.label.toUpperCase()}</p>
+                          <p style={{ margin: 0, fontSize: 20, fontWeight: 800, color: t.color }}>{t.value}</p>
+                          <p style={{ margin: "4px 0 0", fontSize: 10, color: "#555" }}>{t.mtd}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px,1fr))", gap: 10, marginBottom: 20 }}>
                 {metrics.map(m => {
                   const active = activeMetric === m.key;
@@ -751,21 +834,22 @@ export default function Dashboard({ auth, onLogout, myDashboards = [], folders =
                   <p style={{ margin: 0, fontWeight: 700, fontSize: 14 }}>
                     {activeMeta.label} <span style={{ color: "#555", fontWeight: 400, fontSize: 12 }}>— daily</span>
                   </p>
-                  {compare && prevRows && (
+                  {(compare && prevRows || fc) && (
                     <div style={{ display: "flex", gap: 12, fontSize: 11 }}>
                       <span style={{ color: activeMeta.color }}>— Current</span>
-                      <span style={{ color: "#f59e0b" }}>-- Previous</span>
+                      {compare && prevRows && <span style={{ color: "#f59e0b" }}>-- Previous</span>}
+                      {fc && fc.remainingDays > 0 && <span style={{ color: "#22d3ee" }}>-- Projected</span>}
                     </div>
                   )}
                 </div>
                 <ResponsiveContainer width="100%" height={200}>
-                  <LineChart data={rows.map((r, i) => ({ ...r, prev: prevRows?.[i]?.[activeMetric] ?? null }))}>
+                  <LineChart data={chartData}>
                     <CartesianGrid stroke="#1e1e2e" />
                     <XAxis dataKey="label" tick={{ fill: "#555", fontSize: 9 }} />
                     <YAxis tick={{ fill: "#555", fontSize: 9 }} width={55} tickFormatter={v => activeMeta.format(v)} />
                     <Tooltip
                       contentStyle={{ background: "#13131f", border: `1px solid ${activeMeta.color}`, borderRadius: 8, fontSize: 12 }}
-                      formatter={(v, name) => [activeMeta.format(v), name === "prev" ? "Previous Period" : "Current Period"]}
+                      formatter={(v, name) => [activeMeta.format(v), name === "prev" ? "Previous Period" : name === "projected" ? "Projected" : "Current Period"]}
                       labelFormatter={(label, payload) => {
                         const date = payload?.[0]?.payload?.date;
                         const annot = visibleAnnotations.find(a => a.date === date);
@@ -782,6 +866,9 @@ export default function Dashboard({ auth, onLogout, myDashboards = [], folders =
                     <Line type="monotone" dataKey={activeMetric} stroke={activeMeta.color} strokeWidth={2.5} dot={{ r: 3, fill: activeMeta.color }} />
                     {compare && prevRows && (
                       <Line type="monotone" dataKey="prev" stroke="#f59e0b" strokeWidth={2} strokeDasharray="5 5" dot={false} />
+                    )}
+                    {fc && fc.remainingDays > 0 && (
+                      <Line type="monotone" dataKey="projected" stroke="#22d3ee" strokeWidth={2} strokeDasharray="3 6" dot={false} />
                     )}
                   </LineChart>
                 </ResponsiveContainer>
