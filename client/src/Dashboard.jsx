@@ -387,10 +387,10 @@ export default function Dashboard({ auth, onLogout, myDashboards = [], folders =
     setTimeout(() => setCopiedId(c => (c === s.id ? null : c)), 1600);
   };
 
-  const hdFetcher = useCallback(async (videoId) => {
+  const hdFetcher = useCallback(async (adId) => {
     if (!activeDash) return null;
     try {
-      const r = await fetch(`${API}/dashboards/${activeDash.id}/video-thumb/${videoId}`, { headers: authHeaders(auth.token) });
+      const r = await fetch(`${API}/dashboards/${activeDash.id}/creative-hd/${adId}`, { headers: authHeaders(auth.token) });
       const j = await r.json();
       return j.url || null;
     } catch { return null; }
@@ -1182,11 +1182,11 @@ function CreativeThumb({ creative, alt, hdFetcher }) {
   const [hd, setHd] = useState(null);
   useEffect(() => {
     let cancelled = false;
-    if (creative?.needsHd && creative?.video_id && hdFetcher) {
-      hdFetcher(creative.video_id).then(url => { if (!cancelled && url) setHd(url); });
+    if (creative?.needsHd && creative?.id && hdFetcher) {
+      hdFetcher(creative.id).then(url => { if (!cancelled && url) setHd(url); });
     }
     return () => { cancelled = true; };
-  }, [creative?.video_id, creative?.needsHd, hdFetcher]);
+  }, [creative?.id, creative?.needsHd, hdFetcher]);
   const src = hd || creative?.thumbnail_url;
   if (!src || broken) return <span style={{ fontSize: 40, opacity: 0.25 }}>🖼️</span>;
   return <img src={src} alt={alt} loading="lazy" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={() => setBroken(true)} />;

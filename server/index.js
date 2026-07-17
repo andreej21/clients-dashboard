@@ -420,7 +420,6 @@ function mapCreative(ad) {
   // Full-res, advertiser-uploaded images (only the specific sub-fields — requesting
   // the whole object_story_spec in bulk trips Meta's "reduce the amount of data" limit):
   const videoCover = spec.video_data?.image_url;  // video ad cover image (usually 1080px)
-  const videoId    = spec.video_data?.video_id || null;
   const linkImage  = spec.link_data?.picture;     // image/link ad picture
   const hiRes =
     c.image_url ||        // image ads — full res
@@ -434,9 +433,9 @@ function mapCreative(ad) {
     const [pageId, postId] = c.effective_object_story_id.split("_");
     if (pageId && postId) permalink = `https://www.facebook.com/${pageId}/posts/${postId}`;
   }
-  // needsHd → this is a video with no advertiser cover, so only a low-res auto-frame
-  // is available; the client can upgrade it lazily via /video-thumb/:videoId
-  return { id: ad.id, thumbnail_url, permalink, video_id: videoId, needsHd: !hiRes && !!videoId };
+  // needsHd → only a low-res preview was found in bulk (typical of post-based ads);
+  // the client upgrades it lazily via /creative-hd/:adId, which follows the post ID
+  return { id: ad.id, thumbnail_url, permalink, needsHd: !hiRes };
 }
 
 const CREATIVE_FIELDS = "id,name,creative{id,thumbnail_url,image_url,effective_object_story_id,object_story_spec{video_data{image_url,video_id},link_data{picture}}}";
@@ -530,18 +529,43 @@ app.get("/api/dashboards/:id/ad-creatives", authMiddleware, async (req, res) => 
   } catch (e) { res.json({ data: [], debug: { error: e.message } }); }
 });
 
-// Higher-res frame for a video ad that has no advertiser cover image. Called lazily per card.
-app.get("/api/dashboards/:id/video-thumb/:videoId", authMiddleware, async (req, res) => {
+// Pick the largest / preferred frame stored for a video
+async function bestVideoThumb(videoId) {
+  try {
+    const r = await fetch(`${META_BASE}/${videoId}?fields=thumbnails{uri,width,is_preferred}&access_token=${META_TOKEN}`);
+    const j = await r.json();
+    if (j.error) return null;
+    const thumbs = (j.thumbnails?.data || []).slice();
+    const best = thumbs.find(t => t.is_preferred) || thumbs.sort((a, b) => (b.width || 0) - (a.width || 0))[0];
+    return best?.uri || null;
+  } catch { return null; }
+}
+
+// Lazily resolve a high-res image for one ad. Handles inline creatives, videos with
+// no cover, and — importantly — post-based ads (object_story_id) by following the
+// post to its full_picture / attached video frame. Called per visible card.
+app.get("/api/dashboards/:id/creative-hd/:adId", authMiddleware, async (req, res) => {
   const dashId = parseInt(req.params.id);
   if (!await checkDashboardAccess(req, res, dashId)) return;
   try {
-    const url = `${META_BASE}/${req.params.videoId}?fields=thumbnails{uri,width,is_preferred}&access_token=${META_TOKEN}`;
-    const r = await fetch(url);
-    const j = await r.json();
-    if (j.error) return res.json({ url: null });
-    const thumbs = (j.thumbnails?.data || []).slice();
-    const best = thumbs.find(t => t.is_preferred) || thumbs.sort((a, b) => (b.width || 0) - (a.width || 0))[0];
-    res.json({ url: best?.uri || null });
+    const cUrl = `${META_BASE}/${req.params.adId}?fields=creative{image_url,effective_object_story_id,object_story_spec{video_data{video_id,image_url},link_data{picture}}}&access_token=${META_TOKEN}`;
+    const cJson = await (await fetch(cUrl)).json();
+    const c = cJson.creative || {};
+    const spec = c.object_story_spec || {};
+    let url = c.image_url || spec.video_data?.image_url || spec.link_data?.picture || null;
+    // Video ad with no cover → largest stored frame
+    if (!url && spec.video_data?.video_id) url = await bestVideoThumb(spec.video_data.video_id);
+    // Post-based ad → follow the post to its image / attached video frame
+    if (!url && c.effective_object_story_id) {
+      const pUrl = `${META_BASE}/${c.effective_object_story_id}?fields=full_picture,attachments{media_type,media{image{src}},target{id}}&access_token=${META_TOKEN}`;
+      const pJson = await (await fetch(pUrl)).json();
+      if (!pJson.error) {
+        const att = pJson.attachments?.data?.[0];
+        if (att?.media_type === "video" && att?.target?.id) url = await bestVideoThumb(att.target.id);
+        url = url || att?.media?.image?.src || pJson.full_picture || null;
+      }
+    }
+    res.json({ url });
   } catch { res.json({ url: null }); }
 });
 
