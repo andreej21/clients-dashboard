@@ -26,6 +26,50 @@ const allowedOrigins = [
   process.env.FRONTEND_URL,
 ].filter(Boolean);
 
+// ── First-party pixel (public, must be registered BEFORE the restrictive CORS) ──
+const PIXEL_JS = `(function(){
+  var s=document.currentScript, PID=s&&s.getAttribute('data-pixel-id'); if(!PID) return;
+  var BASE=new URL(s.src).origin;
+  function ck(n,v,d){ if(v===undefined){var m=document.cookie.match('(^|;)\\\\s*'+n+'\\\\s*=\\\\s*([^;]+)');return m?decodeURIComponent(m.pop()):null;} var e=new Date();e.setTime(e.getTime()+d*864e5);document.cookie=n+'='+encodeURIComponent(v)+';expires='+e.toUTCString()+';path=/;SameSite=Lax'; }
+  function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,10);}
+  var vid=ck('sp_vid'); if(!vid){vid=uid();ck('sp_vid',vid,365);}
+  var q={}; location.search.replace(/[?&]+([^=&]+)=([^&]*)/gi,function(_,k,v){q[k]=decodeURIComponent(v);});
+  var cid=null,plat=null;
+  if(q.fbclid){cid=q.fbclid;plat='facebook';} else if(q.gclid){cid=q.gclid;plat='google';} else if(q.ttclid){cid=q.ttclid;plat='tiktok';}
+  if(cid||q.utm_source||q.utm_campaign){ ck('sp_attr',JSON.stringify({click_id:cid,click_platform:plat,utm_source:q.utm_source||null,utm_medium:q.utm_medium||null,utm_campaign:q.utm_campaign||null,utm_content:q.utm_content||null,utm_term:q.utm_term||null,landing_page:location.href,ts:Date.now()}),90); }
+  function attr(){try{return JSON.parse(ck('sp_attr')||'{}');}catch(e){return {};}}
+  function send(name,props){ props=props||{}; var a=attr(); var p={pixel_id:PID,visitor_id:vid,event_name:name,value:(props.value!=null?props.value:null),currency:props.currency||null,click_id:a.click_id||null,click_platform:a.click_platform||null,utm_source:a.utm_source||null,utm_medium:a.utm_medium||null,utm_campaign:a.utm_campaign||null,utm_content:a.utm_content||null,utm_term:a.utm_term||null,landing_page:a.landing_page||null,page_url:location.href,referrer:document.referrer||null}; var url=BASE+'/api/pixel/collect',body=JSON.stringify(p); try{ if(navigator.sendBeacon){navigator.sendBeacon(url,new Blob([body],{type:'application/json'}));} else {fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:body,keepalive:true});} }catch(e){} }
+  var queued=(window.sppixel&&window.sppixel.q)||[]; window.sppixel={track:send}; queued.forEach(function(a){send.apply(null,a);});
+  send('pageview');
+})();`;
+
+const pixelCors = cors({ origin: true });
+app.get("/pixel.js", pixelCors, (req, res) => {
+  res.set("Content-Type", "application/javascript");
+  res.set("Cache-Control", "public, max-age=3600");
+  res.send(PIXEL_JS);
+});
+app.options("/api/pixel/collect", pixelCors);
+app.post("/api/pixel/collect", pixelCors, express.json({ limit: "16kb" }), async (req, res) => {
+  try {
+    const b = req.body || {};
+    if (!b.pixel_id || !b.event_name) return res.status(400).end();
+    const { data: dash } = await supabase.from("dashboards").select("id").eq("pixel_id", b.pixel_id).single();
+    if (!dash) return res.status(404).end();
+    await supabase.from("pixel_events").insert({
+      dashboard_id: dash.id, visitor_id: b.visitor_id || null,
+      event_name: String(b.event_name).slice(0, 64),
+      value: (b.value != null && !isNaN(parseFloat(b.value))) ? parseFloat(b.value) : null,
+      currency: b.currency ? String(b.currency).slice(0, 8) : null,
+      click_id: b.click_id || null, click_platform: b.click_platform || null,
+      utm_source: b.utm_source || null, utm_medium: b.utm_medium || null, utm_campaign: b.utm_campaign || null,
+      utm_content: b.utm_content || null, utm_term: b.utm_term || null,
+      landing_page: b.landing_page || null, page_url: b.page_url || null, referrer: b.referrer || null,
+    });
+    res.status(204).end();
+  } catch { res.status(204).end(); }  // never break a client's site
+});
+
 app.use(cors({
   origin: (origin, callback) => {
     if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
@@ -375,6 +419,55 @@ app.post("/api/dashboards/:id/entity/:entityId/budget", authMiddleware, async (r
     const j = await r.json();
     if (j.error) return res.status(400).json({ error: j.error.message });
     res.json({ success: true, budget_type, amount: amt });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── First-party pixel: config + summary (authed) ────────
+
+app.get("/api/dashboards/:id/pixel", authMiddleware, async (req, res) => {
+  const dashId = parseInt(req.params.id);
+  if (!await checkDashboardAccess(req, res, dashId)) return;
+  let { data: dash } = await supabase.from("dashboards").select("id, pixel_id").eq("id", dashId).single();
+  if (!dash) return res.status(404).json({ error: "Dashboard not found" });
+  if (!dash.pixel_id) {
+    if (!await canManageDashboard(req, dashId)) return res.json({ pixel_id: null, backend: process.env.BACKEND_URL || "" });
+    const pid = "px_" + crypto.randomBytes(10).toString("hex");
+    const { data: upd, error } = await supabase.from("dashboards").update({ pixel_id: pid }).eq("id", dashId).select("pixel_id").single();
+    if (error) return res.status(500).json({ error: error.message });
+    dash = upd;
+  }
+  const base = process.env.BACKEND_URL || "";
+  res.json({ pixel_id: dash.pixel_id, script_url: `${base}/pixel.js`, backend: base });
+});
+
+app.get("/api/dashboards/:id/pixel/summary", authMiddleware, async (req, res) => {
+  const dashId = parseInt(req.params.id);
+  if (!await checkDashboardAccess(req, res, dashId)) return;
+  const { since, until } = req.query;
+  try {
+    let q = supabase.from("pixel_events")
+      .select("event_name, value, click_platform, utm_source, utm_campaign, created_at")
+      .eq("dashboard_id", dashId).order("created_at", { ascending: false }).limit(50000);
+    if (since) q = q.gte("created_at", `${since}T00:00:00`);
+    if (until) q = q.lte("created_at", `${until}T23:59:59`);
+    const { data, error } = await q;
+    if (error) return res.status(500).json({ error: error.message });
+    const rows = data || [];
+    const byEvent = {}, byPlatform = {}, byCampaign = {};
+    let revenue = 0, conversions = 0, pageviews = 0;
+    const bump = (obj, key, val) => { obj[key] = obj[key] || { count: 0, value: 0 }; obj[key].count++; obj[key].value += val || 0; };
+    for (const e of rows) {
+      if (e.event_name === "pageview") { pageviews++; continue; }
+      conversions++; revenue += e.value || 0;
+      bump(byEvent, e.event_name, e.value);
+      bump(byPlatform, e.click_platform || e.utm_source || "direct", e.value);
+      if (e.utm_campaign) bump(byCampaign, e.utm_campaign, e.value);
+    }
+    const toArr = obj => Object.entries(obj).map(([name, v]) => ({ name, ...v })).sort((a, b) => b.count - a.count);
+    res.json({
+      totalEvents: rows.length, pageviews, conversions, revenue,
+      byEvent: toArr(byEvent), byPlatform: toArr(byPlatform), byCampaign: toArr(byCampaign).slice(0, 20),
+    });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

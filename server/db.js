@@ -42,6 +42,21 @@ async function initDb() {
         revoked BOOLEAN DEFAULT FALSE
       );
       ALTER TABLE dashboards ADD COLUMN IF NOT EXISTS monthly_budget NUMERIC;
+      ALTER TABLE dashboards ADD COLUMN IF NOT EXISTS pixel_id TEXT UNIQUE;
+      CREATE TABLE IF NOT EXISTS pixel_events (
+        id BIGSERIAL PRIMARY KEY,
+        dashboard_id INTEGER REFERENCES dashboards(id) ON DELETE CASCADE,
+        visitor_id TEXT,
+        event_name TEXT NOT NULL,
+        value NUMERIC,
+        currency TEXT,
+        click_id TEXT,
+        click_platform TEXT,
+        utm_source TEXT, utm_medium TEXT, utm_campaign TEXT, utm_content TEXT, utm_term TEXT,
+        landing_page TEXT, page_url TEXT, referrer TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_pixel_events_dash_time ON pixel_events (dashboard_id, created_at DESC);
     `
   });
 
