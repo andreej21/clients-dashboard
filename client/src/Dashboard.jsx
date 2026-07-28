@@ -868,7 +868,6 @@ export default function Dashboard({ auth, onLogout, myDashboards = [], folders =
                   { key: "adsets",    label: `📁 Ad Sets${adsets ? ` (${adsets.length})` : ""}` },
                   { key: "ads",       label: `🎨 Ads${ads ? ` (${ads.filter(a => a.spend > 0).length})` : ""}` },
                   { key: "creative",  label: `🖼️ Creatives` },
-                  { key: "pixel",     label: `📡 Pixel` },
                 ].map(t => (
                   <button key={t.key} onClick={() => setTab(t.key)} style={{
                     background: tab === t.key ? "#6366f1" : "#2a2a3e", border: "none", borderRadius: 8,
@@ -973,9 +972,6 @@ export default function Dashboard({ auth, onLogout, myDashboards = [], folders =
             )}
             {tab === "creative" && rows && (
               <CreativeCockpit ads={ads} creatives={creatives} dashType={dashType} debug={creativesDebug} hdFetcher={hdFetcher} />
-            )}
-            {tab === "pixel" && activeDash && (
-              <PixelPanel dashId={activeDash.id} token={auth.token} since={startDate} until={endDate} canManage={canManage} />
             )}
 
             {tab === "account" && totals && (<>
@@ -1502,86 +1498,6 @@ export function CreativeCockpit({ ads, creatives, dashType, debug, hdFetcher }) 
             style={{ ...S.btn(safePage >= pageCount - 1 ? "#1a1a2e" : "#2a2a3e", safePage >= pageCount - 1 ? "#444" : "#ddd"), cursor: safePage >= pageCount - 1 ? "default" : "pointer" }}>Next →</button>
         </div>
       )}
-    </div>
-  );
-}
-
-function PixelPanel({ dashId, token, since, until, canManage }) {
-  const [cfg, setCfg] = useState(null);
-  const [sum, setSum] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [copied, setCopied] = useState(false);
-  const hdr = { Authorization: `Bearer ${token}` };
-
-  useEffect(() => {
-    setCfg(null);
-    fetch(`${API}/dashboards/${dashId}/pixel`, { headers: hdr }).then(r => r.json()).then(setCfg).catch(() => {});
-  }, [dashId]);
-
-  useEffect(() => {
-    setLoading(true);
-    fetch(`${API}/dashboards/${dashId}/pixel/summary?since=${since}&until=${until}`, { headers: hdr })
-      .then(r => r.json()).then(d => { if (d && !d.error) setSum(d); }).finally(() => setLoading(false));
-  }, [dashId, since, until]);
-
-  const snippet = cfg?.pixel_id ? `<script async src="${cfg.script_url}" data-pixel-id="${cfg.pixel_id}"></script>` : "";
-  const copy = () => { navigator.clipboard?.writeText(snippet); setCopied(true); setTimeout(() => setCopied(false), 1600); };
-
-  const Table = ({ title, rows }) => (
-    <div style={{ ...S.card, overflow: "hidden" }}>
-      <p style={{ margin: 0, padding: "12px 14px", fontWeight: 700, fontSize: 13, borderBottom: "1px solid #2a2a3e" }}>{title}</p>
-      {(!rows || !rows.length)
-        ? <p style={{ color: "#555", fontSize: 12, padding: "12px 14px", margin: 0 }}>No data yet</p>
-        : rows.map(r => (
-          <div key={r.name} style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "8px 14px", borderTop: "1px solid #1a1a2e", fontSize: 12 }}>
-            <span style={{ color: "#ddd", textTransform: "capitalize", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}</span>
-            <span style={{ color: "#888", whiteSpace: "nowrap" }}>{fmtNumber(r.count)}{r.value > 0 ? ` · ${fmtCurrency(r.value)}` : ""}</span>
-          </div>
-        ))}
-    </div>
-  );
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div style={{ ...S.card, padding: 18 }}>
-        <p style={{ margin: "0 0 4px", fontWeight: 700, fontSize: 14 }}>📡 Pixel Install</p>
-        {!cfg ? <p style={{ color: "#555", fontSize: 12, margin: 0 }}>Loading…</p>
-          : !cfg.pixel_id
-            ? <p style={{ color: "#888", fontSize: 12, margin: 0 }}>{canManage ? "Reopen this tab to generate a pixel for this dashboard." : "No pixel set up yet — ask an admin to enable it."}</p>
-            : (<>
-                <p style={{ margin: "0 0 12px", fontSize: 12, color: "#666" }}>Paste this once in the <code>&lt;head&gt;</code> of the client's site (or via GTM), then fire an event on each conversion.</p>
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                  <code style={{ flex: 1, minWidth: 240, background: "#000", padding: "10px 12px", borderRadius: 8, fontSize: 11, color: "#8b9cf8", overflowX: "auto", whiteSpace: "nowrap" }}>{snippet}</code>
-                  <button onClick={copy} style={S.btn(copied ? "#052e16" : "#6366f1", copied ? "#10b981" : "#fff")}>{copied ? "✓ Copied" : "Copy"}</button>
-                </div>
-                <p style={{ margin: "14px 0 6px", fontSize: 11, color: "#666", fontWeight: 700 }}>TRACK A CONVERSION (any objective)</p>
-                <pre style={{ margin: 0, background: "#000", padding: "10px 12px", borderRadius: 8, fontSize: 11, color: "#9fb4c0", overflowX: "auto" }}>{`sppixel.track('lead');
-sppixel.track('booked_call');
-sppixel.track('purchase', { value: 49.99, currency: 'USD' });`}</pre>
-                <p style={{ margin: "10px 0 0", fontSize: 11, color: "#555" }}>Pixel ID: <span style={{ color: "#888", fontFamily: "monospace" }}>{cfg.pixel_id}</span></p>
-              </>)}
-      </div>
-
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px,1fr))", gap: 10 }}>
-        {[
-          { label: "Tracked Conversions", value: fmtNumber(sum?.conversions || 0), color: "#10b981" },
-          { label: "Pixel Revenue", value: fmtCurrency(sum?.revenue || 0), color: "#34d399" },
-          { label: "Pageviews", value: fmtNumber(sum?.pageviews || 0), color: "#6366f1" },
-          { label: "Total Events", value: fmtNumber(sum?.totalEvents || 0), color: "#8b5cf6" },
-        ].map(k => (
-          <div key={k.label} style={{ ...S.card, padding: "12px 14px" }}>
-            <p style={{ margin: "0 0 4px", fontSize: 10, color: "#666", fontWeight: 600 }}>{k.label.toUpperCase()}</p>
-            <p style={{ margin: 0, fontSize: 18, fontWeight: 800, color: k.color }}>{k.value}</p>
-          </div>
-        ))}
-      </div>
-      {loading && <p style={{ color: "#555", fontSize: 12, margin: 0 }}>Loading pixel data…</p>}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px,1fr))", gap: 12 }}>
-        <Table title="Conversions by Event" rows={sum?.byEvent} />
-        <Table title="By Platform (attributed)" rows={sum?.byPlatform} />
-        <Table title="Top Campaigns (UTM)" rows={sum?.byCampaign} />
-      </div>
-      <p style={{ fontSize: 11, color: "#444", textAlign: "center", margin: 0 }}>First-party attribution · last-touch · 90-day window. Compare against Meta's reported numbers on the Account tab.</p>
     </div>
   );
 }
